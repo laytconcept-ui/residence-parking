@@ -1,8 +1,6 @@
 import io
-import os
 import re
 import sqlite3
-from datetime import datetime
 import easyocr
 import numpy as np
 import pandas as pd
@@ -12,37 +10,13 @@ import streamlit as st
 st.set_page_config(
     page_title="تدبير سيارات الإقامة",
     page_icon="🚗",
-    layout="wide",
+    layout="centered",
     initial_sidebar_state="collapsed",
 )
 
-# ----------------- تنسيق واجهة الهاتف والكاميرا -----------------
-st.markdown(
-    """
-<style>
-    [data-testid="stCameraInput"] {
-        width: 100% !important;
-        max-width: 100% !important;
-    }
-    [data-testid="stCameraInput"] video {
-        width: 100% !important;
-        height: auto !important;
-        border-radius: 14px !important;
-        border: 2px solid #0284c7 !important;
-    }
-    div.stButton > button {
-        border-radius: 10px !important;
-        font-weight: 700 !important;
-    }
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
 DB_FILE = "residence_parking.db"
-EXCEL_FILE = "residence_archive.xlsx"
 
-# ----------------- تهيئة EasyOCR والتخزين -----------------
+# ----------------- تهيئة EasyOCR وقاعدة البيانات -----------------
 
 
 @st.cache_resource
@@ -50,8 +24,7 @@ def get_ocr_reader():
   return easyocr.Reader(["ar", "en"], gpu=False)
 
 
-def init_storage():
-  # تهيئة قاعدة البيانات المحلية
+def init_db():
   conn = sqlite3.connect(DB_FILE)
   c = conn.cursor()
   c.execute("""
@@ -66,7 +39,6 @@ def init_storage():
             plate_region TEXT,
             full_plate TEXT,
             car_info TEXT,
-            created_at TEXT,
             notes TEXT
         )
     """)
@@ -74,33 +46,11 @@ def init_storage():
     c.execute("ALTER TABLE residents_cars ADD COLUMN full_plate TEXT")
   except sqlite3.OperationalError:
     pass
-  try:
-    c.execute("ALTER TABLE residents_cars ADD COLUMN created_at TEXT")
-  except sqlite3.OperationalError:
-    pass
   conn.commit()
   conn.close()
 
-  # تهيئة ملف الإكسيل الأرشيفي
-  if not os.path.exists(EXCEL_FILE):
-    df_init = pd.DataFrame(columns=[
-        "id",
-        "building",
-        "apartment",
-        "resident_name",
-        "phone",
-        "plate_number",
-        "plate_letter",
-        "plate_region",
-        "full_plate",
-        "car_info",
-        "created_at",
-        "notes",
-    ])
-    df_init.to_excel(EXCEL_FILE, index=False)
 
-
-init_storage()
+init_db()
 
 
 def get_all_records():
@@ -122,15 +72,12 @@ def add_record(
     car_info,
     notes,
 ):
-  now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-  # 1. الحفظ في SQLite
   conn = sqlite3.connect(DB_FILE)
   c = conn.cursor()
   c.execute(
       """
-        INSERT INTO residents_cars (building, apartment, resident_name, phone, plate_number, plate_letter, plate_region, full_plate, car_info, created_at, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO residents_cars (building, apartment, resident_name, phone, plate_number, plate_letter, plate_region, full_plate, car_info, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """,
       (
           building,
@@ -142,37 +89,11 @@ def add_record(
           plate_reg,
           full_plate,
           car_info,
-          now_str,
           notes,
       ),
   )
-  rec_id = c.lastrowid
   conn.commit()
   conn.close()
-
-  # 2. الأرشفة المباشرة في ملف Excel
-  new_row = {
-      "id": rec_id,
-      "building": building,
-      "apartment": apartment,
-      "resident_name": name,
-      "phone": phone,
-      "plate_number": plate_num,
-      "plate_letter": plate_let,
-      "plate_region": plate_reg,
-      "full_plate": full_plate,
-      "car_info": car_info,
-      "created_at": now_str,
-      "notes": notes,
-  }
-
-  if os.path.exists(EXCEL_FILE):
-    df_excel = pd.read_excel(EXCEL_FILE)
-    df_excel = pd.concat([df_excel, pd.DataFrame([new_row])], ignore_index=True)
-  else:
-    df_excel = pd.DataFrame([new_row])
-
-  df_excel.to_excel(EXCEL_FILE, index=False)
 
 
 def delete_record(record_id):
@@ -181,11 +102,6 @@ def delete_record(record_id):
   c.execute("DELETE FROM residents_cars WHERE id = ?", (record_id,))
   conn.commit()
   conn.close()
-
-  if os.path.exists(EXCEL_FILE):
-    df_excel = pd.read_excel(EXCEL_FILE)
-    df_excel = df_excel[df_excel["id"] != record_id]
-    df_excel.to_excel(EXCEL_FILE, index=False)
 
 
 def parse_moroccan_plate(text_list):
@@ -222,7 +138,9 @@ def parse_moroccan_plate(text_list):
   ]
   combined = " ".join(text_list)
   nums = re.findall(r"\d+", combined)
-  main_num, region, detected_letter = "", "", ""
+  main_num = ""
+  region = ""
+  detected_letter = ""
 
   if nums:
     main_num = max(nums, key=len)
@@ -243,11 +161,11 @@ def parse_moroccan_plate(text_list):
   return main_num, detected_letter, region, full_display
 
 
-# ----------------- أزرار التنقل الرئيسية -----------------
+# ----------------- أزرار التنقل -----------------
 if "active_tab" not in st.session_state:
   st.session_state.active_tab = "camera"
 
-st.title("🚗 جرد وتدبير سيارات الإقامة")
+st.title("🚗 مواقف سيارات الإقامة")
 
 col1, col2, col3, col4 = st.columns(4)
 
@@ -317,35 +235,17 @@ letters_list = [
     "أخرى",
 ]
 
-# ==================== 1. قسم الكاميرا والجرد الميداني ====================
+# ==================== 1. الكاميرا ====================
 if st.session_state.active_tab == "camera":
   st.subheader("📷 التقاط لوحة السيارة")
-
-  # خياران للتصوير لضمان سهولة تشغيل الكاميرا الخلفية دون مشاكل الإذن
-  cam_choice = st.radio(
-      "اختر وضع التصوير:",
-      [
-          "📱 كاميرا الهاتف الأصلية (بالعدسة الخلفية مباشرة)",
-          "🌐 كاميرا المتصفح المباشرة",
-      ],
-      horizontal=True,
-  )
-
-  camera_file = None
-  if cam_choice == "📱 كاميرا الهاتف الأصلية (بالعدسة الخلفية مباشرة)":
-    camera_file = st.file_uploader(
-        "اضغط هنا لفتح كاميرا الهاتف والتقاط اللوحة فوراً",
-        type=["jpg", "jpeg", "png"],
-    )
-  else:
-    camera_file = st.camera_input("التقاط عبر المتصفح")
+  camera_file = st.camera_input("التقاط صورة اللوحة")
 
   if camera_file is not None:
     reader = get_ocr_reader()
     image = Image.open(io.BytesIO(camera_file.getvalue()))
     image_np = np.array(image)
 
-    with st.spinner("جاري قراءة اللوحة بدقة..."):
+    with st.spinner("جاري قراءة اللوحة..."):
       results = reader.readtext(image_np)
       detected_texts = [res[1] for res in results]
 
@@ -354,18 +254,17 @@ if st.session_state.active_tab == "camera":
     )
 
     if main_num:
-      st.write(f"### 🎯 الترقيم المقروء: **`{full_display}`**")
+      st.success(f"🎯 الترقيم المقروء: {full_display}")
 
       df = get_all_records()
-      is_duplicate = False
-      if not df.empty:
-        exist_match = df[df["plate_number"].astype(str) == str(main_num)]
-        if not exist_match.empty:
-          is_duplicate = True
+      exist_match = (
+          df[df["plate_number"].astype(str) == str(main_num)]
+          if not df.empty
+          else pd.DataFrame()
+      )
 
-      if is_duplicate:
-        st.error("⛔ تنبيه: هذه السيارة مسجلة مسبقاً في النظام ولن يتم تكرارها!")
-        st.info("بيانات اللوحة المسجلة سابقاً:")
+      if not exist_match.empty:
+        st.info("ℹ️ هذه السيارة مسجلة مسبقاً:")
         st.dataframe(
             exist_match[[
                 "id",
@@ -379,45 +278,34 @@ if st.session_state.active_tab == "camera":
             use_container_width=True,
         )
       else:
-        st.success("✅ ترقيم جديد، يمكنك تسجيله وأرشفته فوراً:")
-        with st.form("quick_census_form"):
-          col_p1, col_p2, col_p3 = st.columns([2, 1, 1])
-          with col_p1:
+        with st.form("census_form"):
+          c_p1, c_p2, c_p3 = st.columns([2, 1, 1])
+          with c_p1:
             p_num = st.text_input("الأرقام *", value=main_num)
-          with col_p2:
+          with c_p2:
             idx = (
                 letters_list.index(detected_let)
                 if detected_let in letters_list
                 else 0
             )
             p_let = st.selectbox("الحرف", letters_list, index=idx)
-          with col_p3:
+          with c_p3:
             p_reg = st.text_input("العمالة", value=region_num, placeholder="26")
 
-          st.caption(
-              "👇 الخانات التالية اختيارية (يمكن تركها فارغة ومتابعة الجرد):"
-          )
-          c_bld, c_apt = st.columns(2)
-          with c_bld:
-            bld = st.text_input("رقم العمارة", placeholder="مثال: 14")
-          with c_apt:
-            apt = st.text_input("رقم الشقة", placeholder="مثال: 3")
+          st.caption("البيانات التالية اختيارية:")
+          c_b, c_a = st.columns(2)
+          with c_b:
+            bld = st.text_input("العمارة", placeholder="مثال: 12")
+          with c_a:
+            apt = st.text_input("الشقة", placeholder="مثال: 4")
 
-          c_name, c_phone = st.columns(2)
-          with c_name:
-            name = st.text_input("اسم الساكن")
-          with c_phone:
-            phone = st.text_input("الهاتف")
+          name = st.text_input("اسم الساكن (اختياري)")
+          phone = st.text_input("الهاتف (اختياري)")
+          car_desc = st.text_input("نوع ولون السيارة (اختياري)")
 
-          car_desc = st.text_input(
-              "نوع ولون السيارة", placeholder="مثال: Dacia رمادية"
-          )
-
-          save_now = st.form_submit_button(
-              "💾 حفظ وأرشفة في Excel", use_container_width=True
-          )
-
-          if save_now:
+          if st.form_submit_button(
+              "💾 حفظ الترقيم فوراً في الجدول", use_container_width=True
+          ):
             if p_num:
               full_plate_str = f"{p_num} | {p_let} | {p_reg}"
               add_record(
@@ -432,22 +320,17 @@ if st.session_state.active_tab == "camera":
                   car_desc,
                   "",
               )
-              st.success(
-                  f"🎉 تم تسجيل الترقيم [{full_plate_str}] وأرشفته بنجاح!"
-              )
+              st.success("تم الحفظ بنجاح!")
               st.rerun()
             else:
-              st.error("يرجى التأكد من كتابة أرقام اللوحة.")
+              st.error("يرجى التأكد من وجود رقم اللوحة.")
     else:
-      st.warning(
-          "تعذر قراءة أرقام واضحة. يرجى إعادة المحاولة من زاوية أوضح أو"
-          " التسجيل يدوياً."
-      )
+      st.warning("تعذر قراءة أرقام واضحة، حاول الاقتراب أو سجلها يدوياً.")
 
-# ==================== 2. قسم الاستعلام السريع ====================
+# ==================== 2. الاستعلام ====================
 elif st.session_state.active_tab == "search":
   st.subheader("🔍 استعلام سريع")
-  query = st.text_input("ابحث برقم اللوحة، العمارة، أو الشقة:")
+  query = st.text_input("ابحث بالترقيم، العمارة أو الشقة:")
   if query:
     df = get_all_records()
     if not df.empty:
@@ -477,7 +360,7 @@ elif st.session_state.active_tab == "search":
       else:
         st.warning("لا توجد نتائج مطابقة.")
 
-# ==================== 3. قسم التسجيل اليدوي ====================
+# ==================== 3. التسجيل اليدوي ====================
 elif st.session_state.active_tab == "add":
   st.subheader("➕ تسجيل ترقيم يدوياً")
   with st.form("manual_add"):
@@ -491,102 +374,66 @@ elif st.session_state.active_tab == "add":
 
     c_b, c_a = st.columns(2)
     with c_b:
-      bld = st.text_input("العمارة (اختياري)")
+      bld = st.text_input("العمارة")
     with c_a:
-      apt = st.text_input("الشقة (اختياري)")
+      apt = st.text_input("الشقة")
 
-    name = st.text_input("اسم الساكن (اختياري)")
-    phone = st.text_input("رقم الهاتف (اختياري)")
-    car_desc = st.text_input("نوع ولون السيارة (اختياري)")
+    name = st.text_input("اسم الساكن")
+    phone = st.text_input("رقم الهاتف")
+    car_desc = st.text_input("نوع ولون السيارة")
 
-    if st.form_submit_button("💾 حفظ في الأرشيف", use_container_width=True):
+    if st.form_submit_button("💾 حفظ في الجدول", use_container_width=True):
       if p_num:
-        df = get_all_records()
-        if (
-            not df.empty
-            and not df[df["plate_number"].astype(str) == str(p_num)].empty
-        ):
-          st.error(f"⛔ الترقيم ({p_num}) مسجل مسبقاً في النظام!")
-        else:
-          full_plate_str = f"{p_num} | {p_let} | {p_reg}"
-          add_record(
-              bld,
-              apt,
-              name,
-              phone,
-              p_num,
-              p_let,
-              p_reg,
-              full_plate_str,
-              car_desc,
-              "",
-          )
-          st.success("تم الحفظ والأرشفة بنجاح!")
-          st.rerun()
+        full_plate_str = f"{p_num} | {p_let} | {p_reg}"
+        add_record(
+            bld,
+            apt,
+            name,
+            phone,
+            p_num,
+            p_let,
+            p_reg,
+            full_plate_str,
+            car_desc,
+            "",
+        )
+        st.success("تم الحفظ بنجاح!")
+        st.rerun()
       else:
-        st.error("أدخل أرقام اللوحة على الأقل.")
+        st.error("أدخل رقم اللوحة.")
 
-# ==================== 4. قسم الإدارة وتنزيل واستعادة Excel ====================
+# ==================== 4. الإدارة وتصدير Excel ====================
 elif st.session_state.active_tab == "admin":
-  st.subheader("📊 لوحة الإدارة وملف Excel المؤرشف")
+  st.subheader("📊 جدول الترقيمات والسيارات")
   df = get_all_records()
-
   if not df.empty:
     c1, c2 = st.columns(2)
-    c1.metric("إجمالي الترقيمات المحفوظة", len(df))
-    c2.metric(
-        "شقق مكتملة", df["apartment"].replace("", np.nan).dropna().count()
-    )
+    c1.metric("إجمالي السيارات المسجلة", len(df))
+    c2.metric("العمارات", df["building"].nunique())
 
     st.dataframe(df, use_container_width=True)
 
-    if os.path.exists(EXCEL_FILE):
-      with open(EXCEL_FILE, "rb") as f:
-        excel_bytes = f.read()
+    towrite = io.BytesIO()
+    with pd.ExcelWriter(towrite, engine="openpyxl") as writer:
+      df.to_excel(writer, index=False, sheet_name="ترقيمات السيارات")
+    towrite.seek(0)
 
-      st.download_button(
-          label="📥 تحميل الأرشيف الكامل بصيغة Excel (.xlsx)",
-          data=excel_bytes,
-          file_name="residence_archive.xlsx",
-          mime=(
-              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          ),
-          use_container_width=True,
-      )
+    st.download_button(
+        label="📥 تنزيل الجدول في ملف Excel (.xlsx)",
+        data=towrite,
+        file_name="residence_cars.xlsx",
+        mime=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+        use_container_width=True,
+    )
 
-    with st.expander("🗑️ حذف سطر من الأرشيف"):
+    with st.expander("🗑️ حذف سطر من الجدول"):
       del_id = st.number_input(
-          "أدخل معرف السجل (ID) لحذفه:", min_value=1, step=1
+          "أدخل رقم السجل (ID) لحذفه:", min_value=1, step=1
       )
       if st.button("تأكيد الحذف", use_container_width=True):
         delete_record(del_id)
         st.rerun()
   else:
-    st.info("لا توجد بيانات مسجلة في الأرشيف حالياً.")
-
-  st.markdown("---")
-  with st.expander("📤 استيراد بيانات سابقة من ملف Excel (في حال التحديث)"):
-    uploaded_excel = st.file_uploader(
-        "ارفع ملف residence_archive.xlsx لاستعادة البيانات", type=["xlsx"]
-    )
-    if uploaded_excel is not None:
-      df_upload = pd.read_excel(uploaded_excel)
-      for _, row in df_upload.iterrows():
-        p_num = str(row.get("plate_number", ""))
-        if p_num and (
-            df.empty or df[df["plate_number"].astype(str) == p_num].empty
-        ):
-          add_record(
-              str(row.get("building", "")),
-              str(row.get("apartment", "")),
-              str(row.get("resident_name", "")),
-              str(row.get("phone", "")),
-              p_num,
-              str(row.get("plate_letter", "")),
-              str(row.get("plate_region", "")),
-              str(row.get("full_plate", "")),
-              str(row.get("car_info", "")),
-              str(row.get("notes", "")),
-          )
-      st.success("✅ تمت استعادة كافة البيانات ودمجها بنجاح!")
-      st.rerun()
+    st.info("لا توجد سيارات مسجلة بعد.")
