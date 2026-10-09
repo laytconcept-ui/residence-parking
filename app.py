@@ -325,8 +325,7 @@ letters_list = [
 # ==================== 1. قسم الكاميرا والجرد السريع ====================
 if st.session_state.active_tab == "camera":
   st.subheader("📷 التقاط لوحة السيارة")
-  camera_file = st.file_uploader(
-      "📸 اضغط هنا لفتح الكاميرا والتقاط اللوحة", type=["jpg", "jpeg", "png"]
+  camera_file = st.camera_input("التقاط صورة اللوحة")
   )
 
   if camera_file is not None:
