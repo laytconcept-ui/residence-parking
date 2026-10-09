@@ -42,7 +42,7 @@ st.markdown(
 DB_FILE = "residence_parking.db"
 EXCEL_FILE = "residence_archive.xlsx"
 
-# ----------------- تهيئة EasyOCR وقاعدة البيانات وملف الإكسيل -----------------
+# ----------------- تهيئة EasyOCR والتخزين -----------------
 
 
 @st.cache_resource
@@ -51,7 +51,7 @@ def get_ocr_reader():
 
 
 def init_storage():
-  # 1. تهيئة SQLite
+  # تهيئة قاعدة البيانات المحلية
   conn = sqlite3.connect(DB_FILE)
   c = conn.cursor()
   c.execute("""
@@ -81,7 +81,7 @@ def init_storage():
   conn.commit()
   conn.close()
 
-  # 2. تهيئة ملف Excel الأرشيفي إن لم يكن موجوداً
+  # تهيئة ملف الإكسيل الأرشيفي
   if not os.path.exists(EXCEL_FILE):
     df_init = pd.DataFrame(columns=[
         "id",
@@ -124,7 +124,7 @@ def add_record(
 ):
   now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-  # 1. الحفظ في قاعدة البيانات
+  # 1. الحفظ في SQLite
   conn = sqlite3.connect(DB_FILE)
   c = conn.cursor()
   c.execute(
@@ -150,7 +150,7 @@ def add_record(
   conn.commit()
   conn.close()
 
-  # 2. الحفظ التلقائي الفوري في ملف Excel للأرشفة الدائمة
+  # 2. الأرشفة المباشرة في ملف Excel
   new_row = {
       "id": rec_id,
       "building": building,
@@ -243,7 +243,7 @@ def parse_moroccan_plate(text_list):
   return main_num, detected_letter, region, full_display
 
 
-# ----------------- شريط أزرار التنقل -----------------
+# ----------------- أزرار التنقل الرئيسية -----------------
 if "active_tab" not in st.session_state:
   st.session_state.active_tab = "camera"
 
@@ -317,10 +317,28 @@ letters_list = [
     "أخرى",
 ]
 
-# ==================== 1. قسم الكاميرا والجرد ====================
+# ==================== 1. قسم الكاميرا والجرد الميداني ====================
 if st.session_state.active_tab == "camera":
   st.subheader("📷 التقاط لوحة السيارة")
-  camera_file = st.camera_input("التقاط صورة اللوحة")
+
+  # خياران للتصوير لضمان سهولة تشغيل الكاميرا الخلفية دون مشاكل الإذن
+  cam_choice = st.radio(
+      "اختر وضع التصوير:",
+      [
+          "📱 كاميرا الهاتف الأصلية (بالعدسة الخلفية مباشرة)",
+          "🌐 كاميرا المتصفح المباشرة",
+      ],
+      horizontal=True,
+  )
+
+  camera_file = None
+  if cam_choice == "📱 كاميرا الهاتف الأصلية (بالعدسة الخلفية مباشرة)":
+    camera_file = st.file_uploader(
+        "اضغط هنا لفتح كاميرا الهاتف والتقاط اللوحة فوراً",
+        type=["jpg", "jpeg", "png"],
+    )
+  else:
+    camera_file = st.camera_input("التقاط عبر المتصفح")
 
   if camera_file is not None:
     reader = get_ocr_reader()
@@ -346,10 +364,8 @@ if st.session_state.active_tab == "camera":
           is_duplicate = True
 
       if is_duplicate:
-        st.error(
-            "⛔ تنبيه: هذه السيارة مسجلة مسبقاً في النظام! لن يتم تسجيلها مرتين."
-        )
-        st.info("بيانات اللوحة المسجلة مسبقاً:")
+        st.error("⛔ تنبيه: هذه السيارة مسجلة مسبقاً في النظام ولن يتم تكرارها!")
+        st.info("بيانات اللوحة المسجلة سابقاً:")
         st.dataframe(
             exist_match[[
                 "id",
@@ -363,7 +379,7 @@ if st.session_state.active_tab == "camera":
             use_container_width=True,
         )
       else:
-        st.success("✅ ترقيم جديد، يمكنك تسجيله فوراً في الجدول والإكسيل:")
+        st.success("✅ ترقيم جديد، يمكنك تسجيله وأرشفته فوراً:")
         with st.form("quick_census_form"):
           col_p1, col_p2, col_p3 = st.columns([2, 1, 1])
           with col_p1:
@@ -378,7 +394,9 @@ if st.session_state.active_tab == "camera":
           with col_p3:
             p_reg = st.text_input("العمالة", value=region_num, placeholder="26")
 
-          st.caption("الخانات التالية اختيارية:")
+          st.caption(
+              "👇 الخانات التالية اختيارية (يمكن تركها فارغة ومتابعة الجرد):"
+          )
           c_bld, c_apt = st.columns(2)
           with c_bld:
             bld = st.text_input("رقم العمارة", placeholder="مثال: 14")
@@ -396,7 +414,7 @@ if st.session_state.active_tab == "camera":
           )
 
           save_now = st.form_submit_button(
-              "💾 حفظ وأرشفة فورية في Excel", use_container_width=True
+              "💾 حفظ وأرشفة في Excel", use_container_width=True
           )
 
           if save_now:
@@ -421,9 +439,12 @@ if st.session_state.active_tab == "camera":
             else:
               st.error("يرجى التأكد من كتابة أرقام اللوحة.")
     else:
-      st.warning("تعذر استخراج رقم واضح. يمكنك كتابة اللوحة يدوياً.")
+      st.warning(
+          "تعذر قراءة أرقام واضحة. يرجى إعادة المحاولة من زاوية أوضح أو"
+          " التسجيل يدوياً."
+      )
 
-# ==================== 2. قسم الاستعلام ====================
+# ==================== 2. قسم الاستعلام السريع ====================
 elif st.session_state.active_tab == "search":
   st.subheader("🔍 استعلام سريع")
   query = st.text_input("ابحث برقم اللوحة، العمارة، أو الشقة:")
@@ -505,7 +526,7 @@ elif st.session_state.active_tab == "add":
       else:
         st.error("أدخل أرقام اللوحة على الأقل.")
 
-# ==================== 4. قسم الإدارة والتحميل ورفع الأرشيف ====================
+# ==================== 4. قسم الإدارة وتنزيل واستعادة Excel ====================
 elif st.session_state.active_tab == "admin":
   st.subheader("📊 لوحة الإدارة وملف Excel المؤرشف")
   df = get_all_records()
@@ -519,7 +540,6 @@ elif st.session_state.active_tab == "admin":
 
     st.dataframe(df, use_container_width=True)
 
-    # قراءة وتنزيل ملف Excel الأرشيفي المحفوظ دائماً
     if os.path.exists(EXCEL_FILE):
       with open(EXCEL_FILE, "rb") as f:
         excel_bytes = f.read()
@@ -544,18 +564,18 @@ elif st.session_state.active_tab == "admin":
   else:
     st.info("لا توجد بيانات مسجلة في الأرشيف حالياً.")
 
-  # ميزة استرجاع البيانات المسبقة في حال إعادة تشغيل السيرفر
   st.markdown("---")
   with st.expander("📤 استيراد بيانات سابقة من ملف Excel (في حال التحديث)"):
     uploaded_excel = st.file_uploader(
-        "ارفع ملف residence_archive.xlsx لاستعادة البيانات دفعة واحدة",
-        type=["xlsx"],
+        "ارفع ملف residence_archive.xlsx لاستعادة البيانات", type=["xlsx"]
     )
     if uploaded_excel is not None:
       df_upload = pd.read_excel(uploaded_excel)
       for _, row in df_upload.iterrows():
         p_num = str(row.get("plate_number", ""))
-        if p_num and (df.empty or df[df["plate_number"].astype(str) == p_num].empty):
+        if p_num and (
+            df.empty or df[df["plate_number"].astype(str) == p_num].empty
+        ):
           add_record(
               str(row.get("building", "")),
               str(row.get("apartment", "")),
