@@ -22,9 +22,9 @@ def get_ocr_reader():
     return easyocr.Reader(['ar', 'en'], gpu=False)
 
 def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute('''
+  conn = sqlite3.connect(DB_FILE)
+  c = conn.cursor()
+  c.execute("""
         CREATE TABLE IF NOT EXISTS residents_cars (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             building TEXT,
@@ -38,9 +38,15 @@ def init_db():
             car_info TEXT,
             notes TEXT
         )
-    ''')
-    conn.commit()
-    conn.close()
+    """)
+  # التأكد من وجود عمود full_plate في حال كانت قاعدة البيانات قديمة
+  try:
+    c.execute("ALTER TABLE residents_cars ADD COLUMN full_plate TEXT")
+  except sqlite3.OperationalError:
+    pass  # العمود موجود مسبقاً، لا داعي لعمل شيء
+
+  conn.commit()
+  conn.close()
 
 init_db()
 
