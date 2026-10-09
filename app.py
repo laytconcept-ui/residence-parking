@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# رمز الحماية الخاص بالإدارة (يمكنك تغييره لأي رقم تريده)
+# رمز الحماية الخاص بقسم الإدارة
 ADMIN_PIN = "1234"
 DB_FILE = "residence_parking.db"
 
@@ -47,7 +47,6 @@ def init_db():
             notes TEXT
         )
     """)
-  # ترقية الأعمدة تلقائياً إذا كانت قاعدة البيانات من نسخة سابقة
   columns_to_check = [
       ("full_plate", "TEXT"),
       ("car_type", "TEXT DEFAULT 'مقيم'"),
@@ -193,7 +192,7 @@ def parse_moroccan_plate(text_list):
   return main_num, detected_letter, region, full_display
 
 
-# ----------------- دالة عرض بطاقة السيارة الميدانية -----------------
+# ----------------- دالة عرض بطاقة السيارة -----------------
 def render_car_card(row):
   with st.container(border=True):
     p_full = (
@@ -204,12 +203,12 @@ def render_car_card(row):
     bld = (
         row["building"]
         if pd.notna(row["building"]) and row["building"]
-        else "غير مسجلة"
+        else "غير محددة"
     )
     apt = (
         row["apartment"]
         if pd.notna(row["apartment"]) and row["apartment"]
-        else "غير مسجلة"
+        else "غير محددة"
     )
     c_type = (
         row["car_type"]
@@ -217,8 +216,8 @@ def render_car_card(row):
         else "مقيم"
     )
 
-    badge_color = "🟢" if c_type == "مقيم" else "🟡"
-    st.markdown(f"### {badge_color} لوحة: `{p_full}` ({c_type})")
+    badge = "🟢" if c_type == "مقيم" else "🟡"
+    st.markdown(f"### {badge} لوحة: `{p_full}` ({c_type})")
     st.write(f"🏢 **العمارة:** {bld}  |  🚪 **الشقة:** {apt}")
     st.write(
         f"👤 **الساكن:** {row['resident_name'] if pd.notna(row['resident_name']) and row['resident_name'] else 'غير محدد'}"
@@ -242,7 +241,7 @@ def render_car_card(row):
         wa_phone = (
             clean_phone[1:] if clean_phone.startswith("0") else clean_phone
         )
-        wa_msg = f"السلام عليكم، سيارتكم رقم ({p_full}) متوقفة حالياً بشكل يعرقل المرور في موقف الإقامة، يرجى التفضل بتحريكها وشكراً."
+        wa_msg = f"السلام عليكم، سيارتكم رقم ({p_full}) متوقفة حالياً بشكل يعرقل المرور في موقف الإقامة، يرجى التكرم بتحريكها وشكراً."
         wa_link = f"https://wa.me/212{wa_phone}?text={wa_msg.replace(' ', '%20')}"
         st.link_button(
             "⚠️ تنبيه بالعرقلة (واتساب)", wa_link, use_container_width=True
@@ -256,6 +255,7 @@ if "active_tab" not in st.session_state:
 st.title("🚗 مواقف سيارات الإقامة")
 
 col1, col2, col3, col4 = st.columns(4)
+
 with col1:
   btn_type = (
       "primary" if st.session_state.active_tab == "camera" else "secondary"
@@ -322,20 +322,19 @@ letters_list = [
     "أخرى",
 ]
 
-# ==================== 1. قسم الكاميرا والجرد السريع ====================
+# ==================== 1. قسم الكاميرا المباشرة ====================
 if st.session_state.active_tab == "camera":
   st.subheader("📷 التقاط لوحة السيارة")
+
+  # كاميرا التطبيق المباشرة
   camera_file = st.camera_input("التقاط صورة اللوحة")
-  )
 
   if camera_file is not None:
     reader = get_ocr_reader()
     image = Image.open(io.BytesIO(camera_file.getvalue()))
     image_np = np.array(image)
 
-    st.image(image, caption="الصورة الملتقطة", use_container_width=True)
-
-    with st.spinner("جاري قراءة الترقيم بدقة..."):
+    with st.spinner("جاري قراءة اللوحة بدقة..."):
       results = reader.readtext(image_np)
       detected_texts = [res[1] for res in results]
 
@@ -375,10 +374,7 @@ if st.session_state.active_tab == "camera":
               "صفة السيارة:", ["مقيم", "زائر مؤقت"], horizontal=True
           )
 
-          st.caption(
-              "👇 الخانات التالية اختيارية (يمكنك حفظ الترقيم فوراً وإكمالها"
-              " لاحقاً):"
-          )
+          st.caption("👇 الخانات التالية اختيارية لحفظ الترقيم فوراً:")
           c_b, c_a = st.columns(2)
           with c_b:
             bld = st.text_input("رقم العمارة", placeholder="مثال: 12")
@@ -410,16 +406,16 @@ if st.session_state.active_tab == "camera":
               st.success("تم الحفظ بنجاح!")
               st.rerun()
             else:
-              st.error("أدخل رقم اللوحة.")
+              st.error("يرجى التأكد من كتابة أرقام اللوحة.")
     else:
       st.warning(
-          "تعذر قراءة أرقام واضحة، التقط صورة أقرب للوحة أو سجلها يدوياً."
+          "تعذر قراءة أرقام واضحة، حاول تقريب الكاميرا أو سجلها يدوياً."
       )
 
-# ==================== 2. الاستعلام السريع ====================
+# ==================== 2. قسم الاستعلام ====================
 elif st.session_state.active_tab == "search":
-  st.subheader("🔍 استعلام فوري عن سيارة")
-  query = st.text_input("ابحث بالترقيم، رقم العمارة، أو اسم الساكن:")
+  st.subheader("🔍 استعلام سريع عن سيارة")
+  query = st.text_input("ابحث بالترقيم، العمارة، أو اسم الساكن:")
   if query:
     df = get_all_records()
     if not df.empty:
@@ -437,7 +433,7 @@ elif st.session_state.active_tab == "search":
       else:
         st.warning("لا توجد سيارة مطابقة لبيانات البحث.")
 
-# ==================== 3. التسجيل اليدوي ====================
+# ==================== 3. قسم التسجيل اليدوي ====================
 elif st.session_state.active_tab == "add":
   st.subheader("➕ تسجيل سيارة يدوياً")
   with st.form("manual_add"):
@@ -493,7 +489,6 @@ elif st.session_state.active_tab == "add":
 elif st.session_state.active_tab == "admin":
   st.subheader("🔒 إدارة المنظومة وقاعدة البيانات")
 
-  # حماية الدخول برمز سري
   admin_pass = st.text_input(
       "أدخل الرمز السري للإدارة للوصول للبيانات:", type="password"
   )
@@ -512,18 +507,15 @@ elif st.session_state.active_tab == "admin":
       missing_count = df["apartment"].replace("", np.nan).isna().sum()
       m3.metric("تحتاج إكمال الشقة ⚠️", missing_count)
 
-      # ----------------- قسم إكمال البيانات الناقصة -----------------
+      # قسم استكمال البيانات التي جمعت أولاً
       st.markdown("---")
-      st.subheader("⚡ إكمال بيانات الترقيمات التي جُمعت بدون شقق")
+      st.subheader("⚡ إكمال بيانات الترقيمات المجمعة بدون شقق")
 
       missing_df = df[df["apartment"].replace("", np.nan).isna()]
       if not missing_df.empty:
-        st.info(
-            f"يوجد لديك ({len(missing_df)}) سيارة بحاجة لتحديد رقم العمارة"
-            " والشقة."
-        )
+        st.info(f"يوجد ({len(missing_df)}) سيارة بحاجة لتحديد العمارة والشقة.")
         selected_car_id = st.selectbox(
-            "اختر الترقيم المراد استكمال بياناته:",
+            "اختر اللوحة المراد إكمال بياناتها:",
             options=missing_df["id"].tolist(),
             format_func=lambda x: (
                 f"معرف [{x}] - لوحة:"
@@ -543,10 +535,10 @@ elif st.session_state.active_tab == "admin":
           with c2:
             new_apt = st.text_input("رقم الشقة *", value=row_sel["apartment"])
             new_phone = st.text_input("رقم الهاتف", value=row_sel["phone"])
-          new_notes = st.text_input("ملاحظات إضافية", value=row_sel["notes"])
+          new_notes = st.text_input("ملاحظات", value=row_sel["notes"])
 
           if st.form_submit_button(
-              "💾 تحديث وحفظ البيانات", use_container_width=True
+              "💾 حفظ وتحديث البيانات", use_container_width=True
           ):
             update_record_details(
                 selected_car_id,
@@ -565,7 +557,6 @@ elif st.session_state.active_tab == "admin":
       st.subheader("📋 الجدول الشامل للسيارات")
       st.dataframe(df, use_container_width=True)
 
-      # تصدير Excel
       towrite = io.BytesIO()
       with pd.ExcelWriter(towrite, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name="السيارات")
