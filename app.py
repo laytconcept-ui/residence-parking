@@ -138,9 +138,7 @@ def parse_moroccan_plate(text_list):
   ]
   combined = " ".join(text_list)
   nums = re.findall(r"\d+", combined)
-  main_num = ""
-  region = ""
-  detected_letter = ""
+  main_num, region, detected_letter = "", "", ""
 
   if nums:
     main_num = max(nums, key=len)
@@ -235,17 +233,24 @@ letters_list = [
     "أخرى",
 ]
 
-# ==================== 1. الكاميرا ====================
+# ==================== 1. قسم الكاميرا (بدون طلب إذن المتصفح) ====================
 if st.session_state.active_tab == "camera":
   st.subheader("📷 التقاط لوحة السيارة")
-  camera_file = st.camera_input("التقاط صورة اللوحة")
+
+  # هذا الزر يفتح كاميرا الهاتف فوراً دون أي قيود للأذونات
+  camera_file = st.file_uploader(
+      "اضغط هنا لفتح الكاميرا والتقاط اللوحة", type=["jpg", "jpeg", "png"]
+  )
 
   if camera_file is not None:
     reader = get_ocr_reader()
     image = Image.open(io.BytesIO(camera_file.getvalue()))
     image_np = np.array(image)
 
-    with st.spinner("جاري قراءة اللوحة..."):
+    # عرض معاينة للصورة الملتقطة
+    st.image(image, caption="الصورة الملتقطة", use_container_width=True)
+
+    with st.spinner("جاري قراءة اللوحة بدقة..."):
       results = reader.readtext(image_np)
       detected_texts = [res[1] for res in results]
 
@@ -325,7 +330,9 @@ if st.session_state.active_tab == "camera":
             else:
               st.error("يرجى التأكد من وجود رقم اللوحة.")
     else:
-      st.warning("تعذر قراءة أرقام واضحة، حاول الاقتراب أو سجلها يدوياً.")
+      st.warning(
+          "تعذر قراءة أرقام واضحة، حاول التقاط صورة أقرب للوحة أو سجلها يدوياً."
+      )
 
 # ==================== 2. الاستعلام ====================
 elif st.session_state.active_tab == "search":
