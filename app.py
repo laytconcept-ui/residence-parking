@@ -8,16 +8,42 @@ import pandas as pd
 from PIL import Image
 import streamlit as st
 
+# ضبط العرض الواسع لتكبير الكاميرا وكامل الشاشة
 st.set_page_config(
     page_title="منظومة تدبير سيارات الإقامة",
     page_icon="🚗",
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="collapsed",
 )
 
-# رمز الحماية الخاص بقسم الإدارة
+# رمز الحماية لتبويب الإدارة
 ADMIN_PIN = "1234"
 DB_FILE = "residence_parking.db"
+
+# ----------------- CSS لتوسيع وتكبير حيز الكاميرا -----------------
+st.markdown(
+    """
+<style>
+    /* تكبير إطار الكاميرا ليأخذ كامل عرض الهاتف */
+    [data-testid="stCameraInput"] {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+    [data-testid="stCameraInput"] video {
+        width: 100% !important;
+        height: auto !important;
+        min-height: 280px !important;
+        border-radius: 12px !important;
+        border: 2px solid #0284c7 !important;
+    }
+    div.stButton > button {
+        border-radius: 8px !important;
+        font-weight: 700 !important;
+    }
+</style>
+""",
+    unsafe_allow_html=True,
+)
 
 # ----------------- تهيئة EasyOCR وقاعدة البيانات -----------------
 
@@ -47,13 +73,13 @@ def init_db():
             notes TEXT
         )
     """)
-  columns_to_check = [
+  cols = [
       ("full_plate", "TEXT"),
       ("car_type", "TEXT DEFAULT 'مقيم'"),
       ("created_at", "TEXT"),
       ("notes", "TEXT"),
   ]
-  for col_name, col_type in columns_to_check:
+  for col_name, col_type in cols:
     try:
       c.execute(f"ALTER TABLE residents_cars ADD COLUMN {col_name} {col_type}")
     except sqlite3.OperationalError:
@@ -192,7 +218,6 @@ def parse_moroccan_plate(text_list):
   return main_num, detected_letter, region, full_display
 
 
-# ----------------- دالة عرض بطاقة السيارة -----------------
 def render_car_card(row):
   with st.container(border=True):
     p_full = (
@@ -322,11 +347,11 @@ letters_list = [
     "أخرى",
 ]
 
-# ==================== 1. قسم الكاميرا المباشرة ====================
+# ==================== 1. قسم الكاميرا ====================
 if st.session_state.active_tab == "camera":
   st.subheader("📷 التقاط لوحة السيارة")
 
-  # كاميرا التطبيق المباشرة
+  # كاميرا مباشرة بعرض كامل
   camera_file = st.camera_input("التقاط صورة اللوحة")
 
   if camera_file is not None:
@@ -374,7 +399,7 @@ if st.session_state.active_tab == "camera":
               "صفة السيارة:", ["مقيم", "زائر مؤقت"], horizontal=True
           )
 
-          st.caption("👇 الخانات التالية اختيارية لحفظ الترقيم فوراً:")
+          st.caption("👇 الخانات التالية اختيارية لحفظ الترقيم فوراً ومتابعة الجرد:")
           c_b, c_a = st.columns(2)
           with c_b:
             bld = st.text_input("رقم العمارة", placeholder="مثال: 12")
@@ -507,7 +532,6 @@ elif st.session_state.active_tab == "admin":
       missing_count = df["apartment"].replace("", np.nan).isna().sum()
       m3.metric("تحتاج إكمال الشقة ⚠️", missing_count)
 
-      # قسم استكمال البيانات التي جمعت أولاً
       st.markdown("---")
       st.subheader("⚡ إكمال بيانات الترقيمات المجمعة بدون شقق")
 
@@ -563,7 +587,7 @@ elif st.session_state.active_tab == "admin":
       towrite.seek(0)
 
       st.download_button(
-          label="📥 تنزيل كافة البيانات في ملف Excel (.xlsx)",
+          label="📥 تنزيل نسخة احتياطية Excel (.xlsx)",
           data=towrite,
           file_name=f"residence_cars_{datetime.now().strftime('%Y%m%d')}.xlsx",
           mime=(
@@ -580,6 +604,36 @@ elif st.session_state.active_tab == "admin":
           delete_record(del_id)
           st.rerun()
     else:
-      st.info("لا توجد سيارات مسجلة بعد.")
+      st.info("لا توجد سيارات مسجلة بعد في قاعدة البيانات الحالية.")
+
+    # ميزة استرجاع البيانات المسبقة في أي وقت
+    st.markdown("---")
+    with st.expander("📤 استعادة أو رفع بيانات من ملف Excel"):
+      uploaded_excel = st.file_uploader(
+          "اختر ملف Excel لاسترجاع السيارات المسجلة سابقاً", type=["xlsx"]
+      )
+      if uploaded_excel is not None:
+        df_up = pd.read_excel(uploaded_excel)
+        for _, row in df_up.iterrows():
+          p_num = str(row.get("plate_number", "")).strip()
+          if p_num and (
+              df.empty or df[df["plate_number"].astype(str) == p_num].empty
+          ):
+            add_record(
+                str(row.get("building", "")),
+                str(row.get("apartment", "")),
+                str(row.get("resident_name", "")),
+                str(row.get("phone", "")),
+                p_num,
+                str(row.get("plate_letter", "")),
+                str(row.get("plate_region", "")),
+                str(row.get("full_plate", "")),
+                str(row.get("car_type", "مقيم")),
+                str(row.get("car_info", "")),
+                str(row.get("notes", "")),
+            )
+        st.success("✅ تمت استعادة كافة السيارات ودمجها بنجاح!")
+        st.rerun()
+
   elif admin_pass:
     st.error("الرمز السري غير صحيح. يرجى المحاولة مجدداً.")
