@@ -555,7 +555,7 @@ with nav_c2:
   btn_type = (
       "primary" if st.session_state.active_tab == "search" else "secondary"
   )
-  if st.button("🔍 بحث ", type=btn_type, use_container_width=True):
+  if st.button("🔍 استعلام", type=btn_type, use_container_width=True):
     st.session_state.active_tab = "search"
     st.rerun()
 
@@ -668,7 +668,7 @@ if st.session_state.active_tab == "camera":
 
 # ==================== 2. قسم الاستعلام والتعديل السريع ====================
 elif st.session_state.active_tab == "search":
-  st.subheader("🔍 "بحث وتعديل فوري")
+  st.subheader("🔍 استعلام وتعديل فوري")
   query = st.text_input(
       "ابحث برقم اللوحة، العمارة، أو اسم الساكن:",
       placeholder="اكتب رقم اللوحة...",
