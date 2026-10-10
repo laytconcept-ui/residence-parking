@@ -2,6 +2,7 @@ import io
 import re
 import sqlite3
 from datetime import datetime
+import cv2
 import easyocr
 import numpy as np
 import pandas as pd
@@ -76,7 +77,7 @@ st.markdown(
         box-shadow: 0 4px 14px rgba(22, 163, 74, 0.15) !important;
     }
 
-    /* خانة القن السري البارزة بلون مغاير */
+    /* خانة القن السري البارزة */
     .highlight-pin-box input {
         background-color: #fef2f2 !important;
         border: 2px solid #dc2626 !important;
@@ -283,32 +284,83 @@ def delete_record(record_id):
   conn.close()
 
 
-def parse_moroccan_plate(text_list):
-  arabic_targets = ["أ", "ب", "د", "هـ", "ه", "ج", "ح", "ي", "ز", "ر", "WW"]
-  combined = " ".join(text_list)
-  nums = re.findall(r"\d+", combined)
-  main_num, region, detected_letter = "", "", ""
+# ----------------- معالجة الصور وتفكيك اللوحة المغربية -----------------
+def preprocess_image_for_ocr(image_np):
+  """تحسين التباين وعزل أرقام اللوحة بوضوح"""
+  gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
+  clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+  contrast = clahe.apply(gray)
+  denoised = cv2.bilateralFilter(contrast, 9, 75, 75)
+  return denoised
 
-  if nums:
-    main_num = max(nums, key=len)
-    remaining_nums = [n for n in nums if n != main_num]
-    if remaining_nums:
-      region = remaining_nums[0]
 
-  for item in text_list:
-    clean_item = item.strip()
-    for let in arabic_targets:
-      if let in clean_item:
-        detected_letter = "هـ" if let == "ه" else let
+def parse_moroccan_plate(ocr_results):
+  """قراءة وتفكيك اللوحة مع تصحيح خلط الحروف والأرقام"""
+  arabic_targets = {
+      "أ": ["أ", "ا", "إ", "آ"],
+      "ب": ["ب"],
+      "د": ["د", "ذ"],
+      "هـ": ["هـ", "ه", "ة"],
+      "ج": ["ج"],
+      "ح": ["ح", "خ"],
+      "ي": ["ي", "ى"],
+      "ز": ["ز"],
+      "ر": ["ر"],
+      "WW": ["WW", "ww"],
+  }
+
+  detected_texts = []
+  for item in ocr_results:
+    text = item[1].strip()
+    if text:
+      detected_texts.append(text)
+
+  combined_text = " ".join(detected_texts)
+
+  # 1. البحث عن الحرف
+  detected_letter = ""
+  for main_let, aliases in arabic_targets.items():
+    for alias in aliases:
+      if alias in combined_text:
+        detected_letter = main_let
         break
     if detected_letter:
       break
 
-  full_display = f"{main_num} | {detected_letter if detected_letter else '-'} | {region if region else '-'}"
-  return main_num, detected_letter, region, full_display
+  # تصحيح خطأ قراءة حرف 'د' كرقم 5
+  if not detected_letter:
+    for item in detected_texts:
+      if item == "5" or (len(item) == 1 and item in ["5", "o", "O"]):
+        detected_letter = "د"
+        break
+
+  # 2. استخراج الأرقام
+  all_numbers = re.findall(r"\d+", combined_text)
+
+  # استبعاد الرقم 5 إذا استُخدم كحرف د
+  if detected_letter == "د" and "5" in all_numbers and len(all_numbers) >= 2:
+    all_numbers.remove("5")
+
+  main_num = ""
+  region_num = ""
+
+  if all_numbers:
+    main_num = max(all_numbers, key=len)
+    remaining_nums = [n for n in all_numbers if n != main_num]
+
+    if remaining_nums:
+      for rn in remaining_nums:
+        if len(rn) <= 2:
+          region_num = rn
+          break
+      if not region_num:
+        region_num = remaining_nums[0]
+
+  full_display = f"{main_num} | {detected_letter if detected_letter else '-'} | {region_num if region_num else '-'}"
+  return main_num, detected_letter, region_num, full_display
 
 
-# ----------------- بطاقة عرض السيارة مع خيار التعديل -----------------
+# ----------------- بطاقة عرض السيارة -----------------
 def render_car_card(row, allow_edit=True):
   p_num = str(row["plate_number"]) if pd.notna(row["plate_number"]) else ""
   p_let = (
@@ -539,12 +591,14 @@ if st.session_state.active_tab == "camera":
     image = Image.open(io.BytesIO(camera_file.getvalue()))
     image_np = np.array(image)
 
-    with st.spinner("⚡ جاري قراءة الترقيم بدقة..."):
-      results = reader.readtext(image_np)
-      detected_texts = [res[1] for res in results]
+    with st.spinner("⚡ جاري تحسين الصورة وقراءة الترقيم بدقة..."):
+      processed_np = preprocess_image_for_ocr(image_np)
+      results = reader.readtext(
+          processed_np, allowlist="0123456789أبدجهحيخزرWW -|"
+      )
 
     main_num, detected_let, region_num, full_display = parse_moroccan_plate(
-        detected_texts
+        results
     )
 
     if main_num:
@@ -616,7 +670,7 @@ if st.session_state.active_tab == "camera":
               st.error("يرجى كتابة رقم اللوحة.")
     else:
       st.warning(
-          "تعذر قراءة أرقام واضحة، حاول التقاط صورة أقرب للوحة."
+          "تعذر قراءة أرقام واضحة، حاول التقاط صورة أقرب للوحة أو سجلها يدوياً."
       )
 
 # ==================== 2. قسم الاستعلام مع خانة وزر بحث بارزين ====================
@@ -707,7 +761,7 @@ elif st.session_state.active_tab == "add":
       else:
         st.error("أدخل رقم اللوحة على الأقل.")
 
-# ==================== 4. قسم الإدارة مع قن سري وبحث للتعديل ====================
+# ==================== 4. قسم الإدارة وتعديل السجلات ====================
 elif st.session_state.active_tab == "admin":
   st.subheader("🔒 إدارة المنظومة وتعديل السجلات")
 
