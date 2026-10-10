@@ -18,6 +18,9 @@ st.set_page_config(
 ADMIN_PIN = "1234"
 DB_FILE = "residence_parking.db"
 
+# الحروف المعتمدة فقط لاختصار القائمة وتفادي التشتيت
+letters_list = ["", "أ", "ب", "د", "هـ", "ج", "ح", "ي", "ز", "ر", "WW"]
+
 # ----------------- تصميم واجهة التطبيق (CSS) -----------------
 st.markdown(
     """
@@ -263,37 +266,8 @@ def delete_record(record_id):
 
 
 def parse_moroccan_plate(text_list):
-  arabic_letters = [
-      "أ",
-      "ب",
-      "د",
-      "هـ",
-      "و",
-      "ز",
-      "ح",
-      "ط",
-      "ي",
-      "ك",
-      "ل",
-      "م",
-      "ن",
-      "س",
-      "ع",
-      "ف",
-      "ص",
-      "ق",
-      "ر",
-      "ش",
-      "ت",
-      "ث",
-      "خ",
-      "ذ",
-      "ض",
-      "ظ",
-      "غ",
-      "ج",
-      "WW",
-  ]
+  # فحص الحروف المطلوبة فقط
+  arabic_targets = ["أ", "ب", "د", "هـ", "ه", "ج", "ح", "ي", "ز", "ر", "WW"]
   combined = " ".join(text_list)
   nums = re.findall(r"\d+", combined)
   main_num, region, detected_letter = "", "", ""
@@ -306,50 +280,15 @@ def parse_moroccan_plate(text_list):
 
   for item in text_list:
     clean_item = item.strip()
-    for let in arabic_letters:
+    for let in arabic_targets:
       if let in clean_item:
-        detected_letter = let
+        detected_letter = "هـ" if let == "ه" else let
         break
     if detected_letter:
       break
 
   full_display = f"{main_num} | {detected_letter if detected_letter else '-'} | {region if region else '-'}"
   return main_num, detected_letter, region, full_display
-
-
-letters_list = [
-    "",
-    "أ",
-    "ب",
-    "د",
-    "هـ",
-    "و",
-    "ز",
-    "ح",
-    "ط",
-    "ي",
-    "ك",
-    "ل",
-    "م",
-    "ن",
-    "س",
-    "ع",
-    "ف",
-    "ص",
-    "ق",
-    "ر",
-    "ش",
-    "ت",
-    "ث",
-    "خ",
-    "ذ",
-    "ض",
-    "ظ",
-    "غ",
-    "ج",
-    "WW",
-    "أخرى",
-]
 
 
 # ----------------- دالة عرض بطاقة السيارة مع إمكانية التعديل -----------------
@@ -423,7 +362,6 @@ def render_car_card(row, allow_edit=True):
       )
       st.markdown(f"📞 **الهاتف:** `{clean_phone if clean_phone else 'لا يوجد'}`")
 
-    # أزرار الاتصال وواتساب
     if clean_phone and clean_phone.lower() != "nan":
       b1, b2 = st.columns(2)
       with b1:
@@ -441,7 +379,6 @@ def render_car_card(row, allow_edit=True):
         )
         st.link_button("💬 تنبيه واتساب", wa_link, use_container_width=True)
 
-    # ميزة التعديل السريع المباشر
     if allow_edit:
       with st.expander("✏️ تعديل أو إكمال معطيات هذه السيارة"):
         with st.form(f"quick_edit_form_{rec_id}"):
@@ -626,8 +563,7 @@ if st.session_state.active_tab == "camera":
           )
 
           st.caption(
-              "👇 الخانات التالية اختيارية (يمكنك الحفظ الآن وإكمالها من"
-              " المنزل):"
+              "👇 الخانات التالية اختيارية (يمكنك الحفظ الآن وإكمالها لاحقاً):"
           )
           c_b, c_a = st.columns(2)
           with c_b:
@@ -666,7 +602,7 @@ if st.session_state.active_tab == "camera":
           "تعذر قراءة أرقام واضحة، حاول التقاط صورة أقرب للوحة."
       )
 
-# ==================== 2. قسم الاستعلام والتعديل السريع ====================
+# ==================== 2. قسم الاستعلام ====================
 elif st.session_state.active_tab == "search":
   st.subheader("🔍 استعلام وتعديل فوري")
   query = st.text_input(
@@ -686,7 +622,6 @@ elif st.session_state.active_tab == "search":
       if not res.empty:
         st.write(f"تم العثور على ({len(res)}) سيارة:")
         for _, r in res.iterrows():
-          # إتاحة التعديل المباشر
           render_car_card(r, allow_edit=True)
       else:
         st.info("لا توجد سيارة مطابقة لبيانات البحث.")
@@ -743,7 +678,7 @@ elif st.session_state.active_tab == "add":
       else:
         st.error("أدخل رقم اللوحة على الأقل.")
 
-# ==================== 4. قسم الإدارة وتحديث وتعديل المعطيات ====================
+# ==================== 4. قسم الإدارة وتعديل السجلات ====================
 elif st.session_state.active_tab == "admin":
   st.subheader("🔒 إدارة المنظومة وتعديل السجلات")
   admin_pass = st.text_input("أدخل الرمز السري للإدارة:", type="password")
@@ -762,7 +697,6 @@ elif st.session_state.active_tab == "admin":
       missing_count = df["apartment"].replace("", np.nan).isna().sum()
       m3.metric("بحاجة لإكمال الشقة ⚠️", missing_count)
 
-      # ----------------- تعديل أو استكمال أي سيارة -----------------
       st.markdown("---")
       st.subheader("✏️ تعديل وتحديث معطيات أي سيارة مسجلة")
 
