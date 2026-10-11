@@ -34,11 +34,12 @@ st.markdown(
         text-align: right;
     }
 
-    /* إخفاء جملة Press Enter to apply الإنجليزية المزعجة نهائياً */
+    /* إخفاء جملة Press Enter to apply الإنجليزية */
     [data-testid="InputInstructions"] {
         display: none !important;
     }
 
+    /* ترويسة التطبيق العلوية */
     .app-top-header {
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #2563eb 100%);
         border-radius: 18px;
@@ -55,7 +56,9 @@ st.markdown(
         font-size: 20px !important;
         font-weight: 800 !important;
         margin: 0 !important;
-        letter-spacing: -0.5px;
+        background: transparent !important;
+        padding: 0 !important;
+        box-shadow: none !important;
     }
     .app-top-header .status-badge {
         background: rgba(16, 185, 129, 0.2);
@@ -68,6 +71,21 @@ st.markdown(
         display: flex;
         align-items: center;
         gap: 5px;
+    }
+
+    /* إطار العناوين الكبيرة مثل الإطار العلوي تماماً */
+    h2, [data-testid="stHeadingWithActionElements"] h2, .section-header {
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #2563eb 100%) !important;
+        border-radius: 14px !important;
+        padding: 12px 18px !important;
+        color: #ffffff !important;
+        font-size: 19px !important;
+        font-weight: 800 !important;
+        box-shadow: 0 8px 20px -4px rgba(15, 23, 42, 0.25) !important;
+        margin-top: 12px !important;
+        margin-bottom: 18px !important;
+        display: block !important;
+        text-align: right !important;
     }
 
     /* خانة الإدخال بلون إطار بارز وتفريغ الخلفية */
@@ -579,7 +597,7 @@ st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
 # ==================== 1. قسم الكاميرا ====================
 if st.session_state.active_tab == "camera":
-  st.caption("🎯 وجّه الكاميرا نحو ترقيم السيارة للتعرف الفوري:")
+  st.subheader("📷 التقاط لوحة السيارة")
   camera_file = st.camera_input("")
 
   if camera_file is not None:
@@ -765,7 +783,6 @@ elif st.session_state.active_tab == "admin":
   if "admin_authenticated" not in st.session_state:
     st.session_state.admin_authenticated = False
 
-  # خانة القن السري البارزة والنظيفة
   if not st.session_state.admin_authenticated:
     st.markdown('<div class="highlight-pin-box">', unsafe_allow_html=True)
     with st.form("pin_form"):
@@ -801,7 +818,6 @@ elif st.session_state.active_tab == "admin":
       missing_count = df["apartment"].replace("", np.nan).isna().sum()
       m3.metric("بحاجة لإكمال الشقة ⚠️", missing_count)
 
-      # ----------------- قسم التعديل عبر البحث المباشر النظيف -----------------
       st.markdown("---")
       st.subheader("✏️ البحث عن سيارة لتعديل أو استكمال معطياتها")
       st.caption("اكتب رقم اللوحة، اسم الساكن، أو رقم العمارة:")
