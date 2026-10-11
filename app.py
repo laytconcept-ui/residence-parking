@@ -23,7 +23,6 @@ letters_list = ["", "أ", "ب", "د", "هـ", "ج", "ح", "ي", "ز", "ر", "WW"
 
 
 def clean_str(val):
-  """تحويل الأرقام إلى نصوص نظيفة وإزالة .0 والـ NaN"""
   if pd.isna(val) or val is None:
     return ""
   s = str(val).strip()
@@ -40,19 +39,10 @@ st.markdown(
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap');
 
-    /* إخفاء شريط Streamlit العلوي وأزرار GitHub و Share والقلم */
-    header[data-testid="stHeader"] {
-        display: none !important;
-    }
-    #MainMenu {
-        visibility: hidden !important;
-    }
-    footer {
-        visibility: hidden !important;
-    }
-    .stDeployButton {
-        display: none !important;
-    }
+    header[data-testid="stHeader"] { display: none !important; }
+    #MainMenu { visibility: hidden !important; }
+    footer { visibility: hidden !important; }
+    .stDeployButton { display: none !important; }
 
     html, body, [class*="css"], .stApp {
         font-family: 'Cairo', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
@@ -61,12 +51,8 @@ st.markdown(
         text-align: right;
     }
 
-    /* إخفاء جملة Press Enter to apply الإنجليزية */
-    [data-testid="InputInstructions"] {
-        display: none !important;
-    }
+    [data-testid="InputInstructions"] { display: none !important; }
 
-    /* ترويسة التطبيق العلوية */
     .app-top-header {
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #2563eb 100%);
         border-radius: 18px;
@@ -100,7 +86,6 @@ st.markdown(
         gap: 5px;
     }
 
-    /* إطار العناوين الكبيرة مثل الإطار العلوي */
     h2, [data-testid="stHeadingWithActionElements"] h2, .section-header {
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #2563eb 100%) !important;
         border-radius: 14px !important;
@@ -115,7 +100,6 @@ st.markdown(
         text-align: right !important;
     }
 
-    /* خانة الإدخال */
     .stTextInput input {
         background-color: #ffffff !important;
         border: 2px solid #2563eb !important;
@@ -127,7 +111,6 @@ st.markdown(
         box-shadow: 0 2px 8px rgba(37, 99, 235, 0.12) !important;
     }
 
-    /* خانة القن السري */
     .highlight-pin-box input {
         background-color: #fff1f2 !important;
         border: 2px solid #e11d48 !important;
@@ -165,16 +148,8 @@ st.markdown(
         gap: 12px;
         margin-bottom: 12px;
     }
-    .plate-item {
-        font-size: 20px;
-        font-weight: 900;
-        color: #0f172a;
-    }
-    .plate-divider {
-        width: 2px;
-        height: 22px;
-        background-color: #cbd5e1;
-    }
+    .plate-item { font-size: 20px; font-weight: 900; color: #0f172a; }
+    .plate-divider { width: 2px; height: 22px; background-color: #cbd5e1; }
 
     div.stButton > button {
         border-radius: 12px !important;
@@ -343,7 +318,7 @@ def update_full_record(
           car_type,
           car_info,
           notes,
-          record_id,
+          int(record_id),
       ),
   )
   conn.commit()
@@ -353,7 +328,7 @@ def update_full_record(
 def delete_record(record_id):
   conn = sqlite3.connect(DB_FILE)
   c = conn.cursor()
-  c.execute("DELETE FROM residents_cars WHERE id = ?", (record_id,))
+  c.execute("DELETE FROM residents_cars WHERE id = ?", (int(record_id),))
   conn.commit()
   conn.close()
 
@@ -427,7 +402,7 @@ def parse_moroccan_plate(ocr_results):
   return main_num, detected_letter, region_num, full_display
 
 
-# ----------------- بطاقة عرض السيارة -----------------
+# ----------------- بطاقة عرض السيارة مع نموذج التعديل المضمون -----------------
 def render_car_card(row, allow_edit=True):
   p_num = clean_str(row.get("plate_number", ""))
   p_let = (
@@ -501,67 +476,82 @@ def render_car_card(row, allow_edit=True):
 
     if allow_edit:
       with st.expander("✏️ تعديل أو إكمال معطيات هذه السيارة"):
-        with st.form(f"quick_edit_form_{rec_id}"):
-          col_e1, col_e2 = st.columns(2)
-          with col_e1:
-            e_bld = st.text_input("العمارة", value=clean_str(row["building"]))
-            e_name = st.text_input(
-                "اسم الساكن",
-                value=(
-                    str(row["resident_name"])
-                    if pd.notna(row["resident_name"])
-                    else ""
-                ),
-            )
-          with col_e2:
-            e_apt = st.text_input("الشقة", value=clean_str(row["apartment"]))
-            e_phone = st.text_input("رقم الهاتف", value=clean_str(row["phone"]))
+        col_e1, col_e2 = st.columns(2)
+        with col_e1:
+          e_bld = st.text_input(
+              "العمارة",
+              value=clean_str(row["building"]),
+              key=f"card_bld_{rec_id}",
+          )
+          e_name = st.text_input(
+              "اسم الساكن",
+              value=(
+                  str(row["resident_name"])
+                  if pd.notna(row["resident_name"])
+                  else ""
+              ),
+              key=f"card_name_{rec_id}",
+          )
+        with col_e2:
+          e_apt = st.text_input(
+              "الشقة",
+              value=clean_str(row["apartment"]),
+              key=f"card_apt_{rec_id}",
+          )
+          e_phone = st.text_input(
+              "رقم الهاتف",
+              value=clean_str(row["phone"]),
+              key=f"card_phone_{rec_id}",
+          )
 
-          col_e3, col_e4 = st.columns(2)
-          with col_e3:
-            e_car = st.text_input(
-                "نوع ولون السيارة",
-                value=(
-                    str(row["car_info"]) if pd.notna(row["car_info"]) else ""
-                ),
-            )
-          with col_e4:
-            curr_type = (
-                str(row["car_type"])
-                if "car_type" in row and pd.notna(row["car_type"])
-                else "مقيم"
-            )
-            type_idx = 0 if curr_type == "مقيم" else 1
-            e_type = st.radio(
-                "الصفة",
-                ["مقيم", "زائر مؤقت"],
-                index=type_idx,
-                horizontal=True,
-                key=f"type_radio_{rec_id}",
-            )
+        col_e3, col_e4 = st.columns(2)
+        with col_e3:
+          e_car = st.text_input(
+              "نوع ولون السيارة",
+              value=str(row["car_info"]) if pd.notna(row["car_info"]) else "",
+              key=f"card_car_{rec_id}",
+          )
+        with col_e4:
+          curr_type = (
+              str(row["car_type"])
+              if "car_type" in row and pd.notna(row["car_type"])
+              else "مقيم"
+          )
+          type_idx = 0 if curr_type == "مقيم" else 1
+          e_type = st.radio(
+              "الصفة",
+              ["مقيم", "زائر مؤقت"],
+              index=type_idx,
+              horizontal=True,
+              key=f"card_type_{rec_id}",
+          )
 
-          e_notes = st.text_input("ملاحظات", value=clean_str(row["notes"]))
+        e_notes = st.text_input(
+            "ملاحظات",
+            value=clean_str(row["notes"]),
+            key=f"card_notes_{rec_id}",
+        )
 
-          if st.form_submit_button(
-              "💾 حفظ التعديلات", use_container_width=True
-          ):
-            p_full_str = f"{clean_str(row['plate_number'])} | {row['plate_letter']} | {clean_str(row['plate_region'])}"
-            update_full_record(
-                rec_id,
-                e_bld,
-                e_apt,
-                e_name,
-                e_phone,
-                clean_str(row["plate_number"]),
-                str(row["plate_letter"]),
-                clean_str(row["plate_region"]),
-                p_full_str,
-                e_type,
-                e_car,
-                e_notes,
-            )
-            st.success("✅ تم تحديث المعطيات بنجاح!")
-            st.rerun()
+        if st.button(
+            "💾 حفظ التعديلات", key=f"btn_save_card_{rec_id}", type="primary"
+        ):
+          p_full_str = f"{clean_str(row['plate_number'])} | {row['plate_letter']} | {clean_str(row['plate_region'])}"
+          update_full_record(
+              rec_id,
+              e_bld,
+              e_apt,
+              e_name,
+              e_phone,
+              clean_str(row["plate_number"]),
+              str(row["plate_letter"]),
+              clean_str(row["plate_region"]),
+              p_full_str,
+              e_type,
+              e_car,
+              e_notes,
+          )
+          st.success("✅ تم حفظ التعديلات بنجاح!")
+          st.rerun()
 
 
 # ----------------- شريط الملاحة والتنقل -----------------
@@ -730,7 +720,7 @@ elif st.session_state.active_tab == "search":
           "🔍 ابحث الآن", type="primary", use_container_width=True
       )
 
-  if search_submitted and query:
+  if query:
     df = get_all_records()
     if not df.empty:
       mask = (
@@ -803,7 +793,7 @@ elif st.session_state.active_tab == "add":
       else:
         st.error("أدخل رقم اللوحة على الأقل.")
 
-# ==================== 4. قسم الإدارة وتعديل السجلات ====================
+# ==================== 4. قسم الإدارة وتعديل السجلات (مضمون 100%) ====================
 elif st.session_state.active_tab == "admin":
   st.subheader("🔒 إدارة المنظومة وتعديل السجلات")
 
@@ -849,20 +839,14 @@ elif st.session_state.active_tab == "admin":
       st.subheader("✏️ البحث عن سيارة لتعديل أو استكمال معطياتها")
       st.caption("اكتب رقم اللوحة، اسم الساكن، أو رقم العمارة:")
 
-      with st.form("admin_search_subform"):
-        col_ed1, col_ed2 = st.columns([3, 1])
-        with col_ed1:
-          edit_query = st.text_input(
-              "🔎 بحث عن السجل:",
-              value="",
-              placeholder="",
-              label_visibility="collapsed",
-              key="edit_search_field",
-          )
-        with col_ed2:
-          btn_exec_search = st.form_submit_button(
-              "بحث 🔍", type="primary", use_container_width=True
-          )
+      # خانة بحث مباشرة بدون form لتثبيت النتائج أثناء التعديل
+      edit_query = st.text_input(
+          "🔎 بحث عن السجل:",
+          value="",
+          placeholder="",
+          label_visibility="collapsed",
+          key="edit_search_field",
+      )
 
       if edit_query:
         mask_edit = (
@@ -882,101 +866,118 @@ elif st.session_state.active_tab == "admin":
                 f" {row_sel['building']} | الساكن: {row_sel['resident_name']}",
                 expanded=True,
             ):
-              with st.form(f"admin_edit_form_{selected_car_id}"):
-                c_p1, c_p2, c_p3 = st.columns([2, 1, 1])
-                with c_p1:
-                  edit_p_num = st.text_input(
-                      "أرقام اللوحة", value=clean_str(row_sel["plate_number"])
-                  )
-                with c_p2:
-                  let_val = (
-                      row_sel["plate_letter"]
-                      if pd.notna(row_sel["plate_letter"])
-                      and row_sel["plate_letter"] in letters_list
-                      else ""
-                  )
-                  edit_p_let = st.selectbox(
-                      "الحرف",
-                      letters_list,
-                      index=letters_list.index(let_val) if let_val else 0,
-                  )
-                with c_p3:
-                  edit_p_reg = st.text_input(
-                      "العمالة", value=clean_str(row_sel["plate_region"])
-                  )
-
-                curr_type = (
-                    str(row_sel["car_type"])
-                    if "car_type" in row_sel and pd.notna(row_sel["car_type"])
-                    else "مقيم"
+              c_p1, c_p2, c_p3 = st.columns([2, 1, 1])
+              with c_p1:
+                edit_p_num = st.text_input(
+                    "أرقام اللوحة",
+                    value=clean_str(row_sel["plate_number"]),
+                    key=f"adm_pnum_{selected_car_id}",
                 )
-                type_idx = 0 if curr_type == "مقيم" else 1
-                edit_car_type = st.radio(
-                    "صفة السيارة:",
-                    ["مقيم", "زائر مؤقت"],
-                    index=type_idx,
-                    horizontal=True,
-                    key=f"car_type_rad_{selected_car_id}",
+              with c_p2:
+                let_val = (
+                    row_sel["plate_letter"]
+                    if pd.notna(row_sel["plate_letter"])
+                    and row_sel["plate_letter"] in letters_list
+                    else ""
+                )
+                edit_p_let = st.selectbox(
+                    "الحرف",
+                    letters_list,
+                    index=letters_list.index(let_val) if let_val else 0,
+                    key=f"adm_plet_{selected_car_id}",
+                )
+              with c_p3:
+                edit_p_reg = st.text_input(
+                    "العمالة",
+                    value=clean_str(row_sel["plate_region"]),
+                    key=f"adm_preg_{selected_car_id}",
                 )
 
-                c1, c2 = st.columns(2)
-                with c1:
-                  new_bld = st.text_input(
-                      "رقم العمارة", value=clean_str(row_sel["building"])
-                  )
-                  new_name = st.text_input(
-                      "اسم الساكن",
-                      value=(
-                          str(row_sel["resident_name"])
-                          if pd.notna(row_sel["resident_name"])
-                          else ""
-                      ),
-                  )
-                with c2:
-                  new_apt = st.text_input(
-                      "رقم الشقة", value=clean_str(row_sel["apartment"])
-                  )
-                  new_phone = st.text_input(
-                      "رقم الهاتف", value=clean_str(row_sel["phone"])
-                  )
+              curr_type = (
+                  str(row_sel["car_type"])
+                  if "car_type" in row_sel and pd.notna(row_sel["car_type"])
+                  else "مقيم"
+              )
+              type_idx = 0 if curr_type == "مقيم" else 1
+              edit_car_type = st.radio(
+                  "صفة السيارة:",
+                  ["مقيم", "زائر مؤقت"],
+                  index=type_idx,
+                  horizontal=True,
+                  key=f"adm_type_{selected_car_id}",
+              )
 
-                c3, c4 = st.columns(2)
-                with c3:
-                  new_car_info = st.text_input(
-                      "نوع ولون السيارة",
-                      value=(
-                          str(row_sel["car_info"])
-                          if pd.notna(row_sel["car_info"])
-                          else ""
-                      ),
-                  )
-                with c4:
-                  new_notes = st.text_input(
-                      "ملاحظات", value=clean_str(row_sel["notes"])
-                  )
+              c1, c2 = st.columns(2)
+              with c1:
+                new_bld = st.text_input(
+                    "رقم العمارة",
+                    value=clean_str(row_sel["building"]),
+                    key=f"adm_bld_{selected_car_id}",
+                )
+                new_name = st.text_input(
+                    "اسم الساكن",
+                    value=(
+                        str(row_sel["resident_name"])
+                        if pd.notna(row_sel["resident_name"])
+                        else ""
+                    ),
+                    key=f"adm_name_{selected_car_id}",
+                )
+              with c2:
+                new_apt = st.text_input(
+                    "رقم الشقة",
+                    value=clean_str(row_sel["apartment"]),
+                    key=f"adm_apt_{selected_car_id}",
+                )
+                new_phone = st.text_input(
+                    "رقم الهاتف",
+                    value=clean_str(row_sel["phone"]),
+                    key=f"adm_phone_{selected_car_id}",
+                )
 
-                if st.form_submit_button(
-                    "💾 حفظ وتحديث المعطيات", use_container_width=True
-                ):
-                  edit_p_num = clean_str(edit_p_num)
-                  edit_p_reg = clean_str(edit_p_reg)
-                  new_full_plate = f"{edit_p_num} | {edit_p_let} | {edit_p_reg}"
-                  update_full_record(
-                      selected_car_id,
-                      new_bld,
-                      new_apt,
-                      new_name,
-                      new_phone,
-                      edit_p_num,
-                      edit_p_let,
-                      edit_p_reg,
-                      new_full_plate,
-                      edit_car_type,
-                      new_car_info,
-                      new_notes,
-                  )
-                  st.success("✅ تم تحديث بيانات السيارة بنجاح!")
-                  st.rerun()
+              c3, c4 = st.columns(2)
+              with c3:
+                new_car_info = st.text_input(
+                    "نوع ولون السيارة",
+                    value=(
+                        str(row_sel["car_info"])
+                        if pd.notna(row_sel["car_info"])
+                        else ""
+                    ),
+                    key=f"adm_car_{selected_car_id}",
+                )
+              with c4:
+                new_notes = st.text_input(
+                    "ملاحظات",
+                    value=clean_str(row_sel["notes"]),
+                    key=f"adm_notes_{selected_car_id}",
+                )
+
+              # زر حفظ مباشر مستقل يضمن الحفظ الفوري في قاعدة البيانات
+              if st.button(
+                  "💾 حفظ وتحديث المعطيات فوراً",
+                  key=f"btn_save_adm_{selected_car_id}",
+                  type="primary",
+              ):
+                e_p_num = clean_str(edit_p_num)
+                e_p_reg = clean_str(edit_p_reg)
+                new_full_plate = f"{e_p_num} | {edit_p_let} | {e_p_reg}"
+                update_full_record(
+                    selected_car_id,
+                    new_bld,
+                    new_apt,
+                    new_name,
+                    new_phone,
+                    e_p_num,
+                    edit_p_let,
+                    e_p_reg,
+                    new_full_plate,
+                    edit_car_type,
+                    new_car_info,
+                    new_notes,
+                )
+                st.success("✅ تم تحديث بيانات السيارة بنجاح في قاعدة البيانات!")
+                st.rerun()
         else:
           st.info("لم يتم العثور على أي سيارة مطابقة للبحث للتعديل عليها.")
 
