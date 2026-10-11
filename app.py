@@ -21,6 +21,19 @@ DB_FILE = "residence_parking.db"
 
 letters_list = ["", "أ", "ب", "د", "هـ", "ج", "ح", "ي", "ز", "ر", "WW"]
 
+
+def clean_str(val):
+  """تحويل الأرقام إلى نصوص نظيفة وإزالة .0 والـ NaN"""
+  if pd.isna(val) or val is None:
+    return ""
+  s = str(val).strip()
+  if s.lower() == "nan":
+    return ""
+  if s.endswith(".0"):
+    s = s[:-2]
+  return s
+
+
 # ----------------- تصميم واجهة التطبيق (CSS) -----------------
 st.markdown(
     """
@@ -73,7 +86,7 @@ st.markdown(
         gap: 5px;
     }
 
-    /* إطار العناوين الكبيرة مثل الإطار العلوي تماماً */
+    /* إطار العناوين الكبيرة مثل الإطار العلوي */
     h2, [data-testid="stHeadingWithActionElements"] h2, .section-header {
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #2563eb 100%) !important;
         border-radius: 14px !important;
@@ -88,7 +101,7 @@ st.markdown(
         text-align: right !important;
     }
 
-    /* خانة الإدخال بلون إطار بارز وتفريغ الخلفية */
+    /* خانة الإدخال */
     .stTextInput input {
         background-color: #ffffff !important;
         border: 2px solid #2563eb !important;
@@ -100,7 +113,7 @@ st.markdown(
         box-shadow: 0 2px 8px rgba(37, 99, 235, 0.12) !important;
     }
 
-    /* خانة القن السري البارزة */
+    /* خانة القن السري */
     .highlight-pin-box input {
         background-color: #fff1f2 !important;
         border: 2px solid #e11d48 !important;
@@ -212,6 +225,20 @@ def get_all_records():
   conn = sqlite3.connect(DB_FILE)
   df = pd.read_sql_query("SELECT * FROM residents_cars ORDER BY id DESC", conn)
   conn.close()
+
+  # تنظيف كافة الأعمدة التي قد تحتوي على .0 أو nan
+  for col in [
+      "building",
+      "apartment",
+      "plate_number",
+      "plate_region",
+      "resident_name",
+      "phone",
+      "notes",
+  ]:
+    if col in df.columns:
+      df[col] = df[col].apply(clean_str)
+
   return df
 
 
@@ -229,6 +256,13 @@ def add_record(
     notes,
 ):
   now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+  # تنظيف القيم قبل الإدخال
+  building = clean_str(building)
+  apartment = clean_str(apartment)
+  plate_num = clean_str(plate_num)
+  plate_reg = clean_str(plate_reg)
+  phone = clean_str(phone)
+
   conn = sqlite3.connect(DB_FILE)
   c = conn.cursor()
   c.execute(
@@ -269,6 +303,12 @@ def update_full_record(
     car_info,
     notes,
 ):
+  building = clean_str(building)
+  apartment = clean_str(apartment)
+  plate_num = clean_str(plate_num)
+  plate_reg = clean_str(plate_reg)
+  phone = clean_str(phone)
+
   conn = sqlite3.connect(DB_FILE)
   c = conn.cursor()
   c.execute(
@@ -360,15 +400,16 @@ def parse_moroccan_plate(ocr_results):
   region_num = ""
 
   if all_numbers:
-    main_num = max(all_numbers, key=len)
+    main_num = clean_str(max(all_numbers, key=len))
     remaining_nums = [n for n in all_numbers if n != main_num]
+
     if remaining_nums:
       for rn in remaining_nums:
         if len(rn) <= 2:
-          region_num = rn
+          region_num = clean_str(rn)
           break
       if not region_num:
-        region_num = remaining_nums[0]
+        region_num = clean_str(remaining_nums[0])
 
   full_display = f"{main_num} | {detected_letter if detected_letter else '-'} | {region_num if region_num else '-'}"
   return main_num, detected_letter, region_num, full_display
@@ -376,37 +417,21 @@ def parse_moroccan_plate(ocr_results):
 
 # ----------------- بطاقة عرض السيارة -----------------
 def render_car_card(row, allow_edit=True):
-  p_num = str(row["plate_number"]) if pd.notna(row["plate_number"]) else ""
+  p_num = clean_str(row.get("plate_number", ""))
   p_let = (
       str(row["plate_letter"])
       if pd.notna(row["plate_letter"]) and row["plate_letter"]
       else "-"
   )
-  p_reg = (
-      str(row["plate_region"])
-      if pd.notna(row["plate_region"]) and row["plate_region"]
-      else "-"
-  )
-  bld = (
-      row["building"]
-      if pd.notna(row["building"]) and row["building"]
-      else "—"
-  )
-  apt = (
-      row["apartment"]
-      if pd.notna(row["apartment"]) and row["apartment"]
-      else "—"
-  )
+  p_reg = clean_str(row.get("plate_region", ""))
+  bld = clean_str(row.get("building", ""))
+  apt = clean_str(row.get("apartment", ""))
   c_type = (
       row["car_type"]
       if "car_type" in row and pd.notna(row["car_type"])
       else "مقيم"
   )
-  clean_phone = (
-      str(row["phone"]).replace(" ", "").replace("-", "")
-      if pd.notna(row["phone"]) and row["phone"]
-      else ""
-  )
+  clean_phone = clean_str(row.get("phone", ""))
   rec_id = int(row["id"])
 
   with st.container(border=True):
@@ -431,8 +456,8 @@ def render_car_card(row, allow_edit=True):
     c_i1, c_i2 = st.columns(2)
     with c_i1:
       st.markdown(
-          f"🏢 **العمارة:** `{bld}` &nbsp;&nbsp;|&nbsp;&nbsp; 🚪 **الشقة:**"
-          f" `{apt}`"
+          f"🏢 **العمارة:** `{bld if bld else '—'}` &nbsp;&nbsp;|&nbsp;&nbsp; 🚪"
+          f" **الشقة:** `{apt if apt else '—'}`"
       )
       st.markdown(
           "👤 **الساكن:**"
@@ -467,10 +492,7 @@ def render_car_card(row, allow_edit=True):
         with st.form(f"quick_edit_form_{rec_id}"):
           col_e1, col_e2 = st.columns(2)
           with col_e1:
-            e_bld = st.text_input(
-                "العمارة",
-                value=str(row["building"]) if pd.notna(row["building"]) else "",
-            )
+            e_bld = st.text_input("العمارة", value=clean_str(row["building"]))
             e_name = st.text_input(
                 "اسم الساكن",
                 value=(
@@ -480,16 +502,8 @@ def render_car_card(row, allow_edit=True):
                 ),
             )
           with col_e2:
-            e_apt = st.text_input(
-                "الشقة",
-                value=(
-                    str(row["apartment"]) if pd.notna(row["apartment"]) else ""
-                ),
-            )
-            e_phone = st.text_input(
-                "رقم الهاتف",
-                value=str(row["phone"]) if pd.notna(row["phone"]) else "",
-            )
+            e_apt = st.text_input("الشقة", value=clean_str(row["apartment"]))
+            e_phone = st.text_input("رقم الهاتف", value=clean_str(row["phone"]))
 
           col_e3, col_e4 = st.columns(2)
           with col_e3:
@@ -514,24 +528,21 @@ def render_car_card(row, allow_edit=True):
                 key=f"type_radio_{rec_id}",
             )
 
-          e_notes = st.text_input(
-              "ملاحظات",
-              value=str(row["notes"]) if pd.notna(row["notes"]) else "",
-          )
+          e_notes = st.text_input("ملاحظات", value=clean_str(row["notes"]))
 
           if st.form_submit_button(
               "💾 حفظ التعديلات", use_container_width=True
           ):
-            p_full_str = f"{row['plate_number']} | {row['plate_letter']} | {row['plate_region']}"
+            p_full_str = f"{clean_str(row['plate_number'])} | {row['plate_letter']} | {clean_str(row['plate_region'])}"
             update_full_record(
                 rec_id,
                 e_bld,
                 e_apt,
                 e_name,
                 e_phone,
-                str(row["plate_number"]),
+                clean_str(row["plate_number"]),
                 str(row["plate_letter"]),
-                str(row["plate_region"]),
+                clean_str(row["plate_region"]),
                 p_full_str,
                 e_type,
                 e_car,
@@ -664,6 +675,8 @@ if st.session_state.active_tab == "camera":
               "💾 حفظ الترقيم فوراً في النظام", use_container_width=True
           ):
             if p_num:
+              p_num = clean_str(p_num)
+              p_reg = clean_str(p_reg)
               full_plate_str = f"{p_num} | {p_let} | {p_reg}"
               add_record(
                   bld,
@@ -750,6 +763,8 @@ elif st.session_state.active_tab == "add":
 
     if st.form_submit_button("💾 حفظ في المنظومة", use_container_width=True):
       if p_num:
+        p_num = clean_str(p_num)
+        p_reg = clean_str(p_reg)
         df = get_all_records()
         if (
             not df.empty
@@ -859,7 +874,7 @@ elif st.session_state.active_tab == "admin":
                 c_p1, c_p2, c_p3 = st.columns([2, 1, 1])
                 with c_p1:
                   edit_p_num = st.text_input(
-                      "أرقام اللوحة", value=row_sel["plate_number"]
+                      "أرقام اللوحة", value=clean_str(row_sel["plate_number"])
                   )
                 with c_p2:
                   let_val = (
@@ -875,7 +890,7 @@ elif st.session_state.active_tab == "admin":
                   )
                 with c_p3:
                   edit_p_reg = st.text_input(
-                      "العمالة", value=row_sel["plate_region"]
+                      "العمالة", value=clean_str(row_sel["plate_region"])
                   )
 
                 curr_type = (
@@ -895,12 +910,7 @@ elif st.session_state.active_tab == "admin":
                 c1, c2 = st.columns(2)
                 with c1:
                   new_bld = st.text_input(
-                      "رقم العمارة",
-                      value=(
-                          str(row_sel["building"])
-                          if pd.notna(row_sel["building"])
-                          else ""
-                      ),
+                      "رقم العمارة", value=clean_str(row_sel["building"])
                   )
                   new_name = st.text_input(
                       "اسم الساكن",
@@ -912,18 +922,10 @@ elif st.session_state.active_tab == "admin":
                   )
                 with c2:
                   new_apt = st.text_input(
-                      "رقم الشقة",
-                      value=(
-                          str(row_sel["apartment"])
-                          if pd.notna(row_sel["apartment"])
-                          else ""
-                      ),
+                      "رقم الشقة", value=clean_str(row_sel["apartment"])
                   )
                   new_phone = st.text_input(
-                      "رقم الهاتف",
-                      value=(
-                          str(row_sel["phone"]) if pd.notna(row_sel["phone"]) else ""
-                      ),
+                      "رقم الهاتف", value=clean_str(row_sel["phone"])
                   )
 
                 c3, c4 = st.columns(2)
@@ -938,17 +940,14 @@ elif st.session_state.active_tab == "admin":
                   )
                 with c4:
                   new_notes = st.text_input(
-                      "ملاحظات",
-                      value=(
-                          str(row_sel["notes"])
-                          if pd.notna(row_sel["notes"])
-                          else ""
-                      ),
+                      "ملاحظات", value=clean_str(row_sel["notes"])
                   )
 
                 if st.form_submit_button(
                     "💾 حفظ وتحديث المعطيات", use_container_width=True
                 ):
+                  edit_p_num = clean_str(edit_p_num)
+                  edit_p_reg = clean_str(edit_p_reg)
                   new_full_plate = f"{edit_p_num} | {edit_p_let} | {edit_p_reg}"
                   update_full_record(
                       selected_car_id,
@@ -1006,22 +1005,22 @@ elif st.session_state.active_tab == "admin":
       if uploaded_excel is not None:
         df_up = pd.read_excel(uploaded_excel)
         for _, row in df_up.iterrows():
-          p_num = str(row.get("plate_number", "")).strip()
+          p_num = clean_str(row.get("plate_number", ""))
           if p_num and (
               df.empty or df[df["plate_number"].astype(str) == p_num].empty
           ):
             add_record(
-                str(row.get("building", "")),
-                str(row.get("apartment", "")),
-                str(row.get("resident_name", "")),
-                str(row.get("phone", "")),
+                clean_str(row.get("building", "")),
+                clean_str(row.get("apartment", "")),
+                clean_str(row.get("resident_name", "")),
+                clean_str(row.get("phone", "")),
                 p_num,
                 str(row.get("plate_letter", "")),
-                str(row.get("plate_region", "")),
-                str(row.get("full_plate", "")),
+                clean_str(row.get("plate_region", "")),
+                clean_str(row.get("full_plate", "")),
                 str(row.get("car_type", "مقيم")),
                 str(row.get("car_info", "")),
-                str(row.get("notes", "")),
+                clean_str(row.get("notes", "")),
             )
-        st.success("✅ تمت استعادة كافة السيارات ودمجها بنجاح!")
+        st.success("✅ تمت استعادة كافة السيارات وتطهير الأرقام بنجاح!")
         st.rerun()
