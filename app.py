@@ -40,6 +40,20 @@ st.markdown(
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap');
 
+    /* إخفاء شريط Streamlit العلوي وأزرار GitHub و Share والقلم */
+    header[data-testid="stHeader"] {
+        display: none !important;
+    }
+    #MainMenu {
+        visibility: hidden !important;
+    }
+    footer {
+        visibility: hidden !important;
+    }
+    .stDeployButton {
+        display: none !important;
+    }
+
     html, body, [class*="css"], .stApp {
         font-family: 'Cairo', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
         background-color: #f1f5f9;
@@ -226,7 +240,6 @@ def get_all_records():
   df = pd.read_sql_query("SELECT * FROM residents_cars ORDER BY id DESC", conn)
   conn.close()
 
-  # تنظيف كافة الأعمدة التي قد تحتوي على .0 أو nan
   for col in [
       "building",
       "apartment",
@@ -256,7 +269,6 @@ def add_record(
     notes,
 ):
   now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-  # تنظيف القيم قبل الإدخال
   building = clean_str(building)
   apartment = clean_str(apartment)
   plate_num = clean_str(plate_num)
