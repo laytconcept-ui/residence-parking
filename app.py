@@ -16,17 +16,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# وضع وسم أيقونة الهاتف المخصصة (أيقونة سيارة)
-st.markdown(
-    """
-    <head>
-        <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3202/3202926.png">
-        <link rel="icon" type="image/png" href="https://cdn-icons-png.flaticon.com/512/3202/3202926.png">
-    </head>
-""",
-    unsafe_allow_html=True,
-)
-
 ADMIN_PIN = "1234"
 DB_FILE = "residence_parking.db"
 
@@ -43,6 +32,11 @@ st.markdown(
         background-color: #f1f5f9;
         direction: rtl;
         text-align: right;
+    }
+
+    /* إخفاء جملة Press Enter to apply الإنجليزية المزعجة نهائياً */
+    [data-testid="InputInstructions"] {
+        display: none !important;
     }
 
     .app-top-header {
@@ -76,30 +70,29 @@ st.markdown(
         gap: 5px;
     }
 
-    /* خانة البحث البارزة */
-    .highlight-search-box input {
-        background-color: #f0fdf4 !important;
-        border: 2px solid #16a34a !important;
+    /* خانة الإدخال بلون إطار بارز وتفريغ الخلفية */
+    .stTextInput input {
+        background-color: #ffffff !important;
+        border: 2px solid #2563eb !important;
         border-radius: 12px !important;
-        padding: 14px !important;
+        padding: 12px 14px !important;
         font-size: 18px !important;
         font-weight: 800 !important;
         color: #0f172a !important;
-        box-shadow: 0 4px 14px rgba(22, 163, 74, 0.15) !important;
+        box-shadow: 0 2px 8px rgba(37, 99, 235, 0.12) !important;
     }
 
     /* خانة القن السري البارزة */
     .highlight-pin-box input {
-        background-color: #fef2f2 !important;
-        border: 2px solid #dc2626 !important;
+        background-color: #fff1f2 !important;
+        border: 2px solid #e11d48 !important;
         border-radius: 12px !important;
         padding: 14px !important;
-        font-size: 20px !important;
-        font-weight: 800 !important;
-        color: #991b1b !important;
+        font-size: 22px !important;
+        font-weight: 900 !important;
+        color: #be123c !important;
         text-align: center !important;
-        letter-spacing: 4px !important;
-        box-shadow: 0 4px 14px rgba(220, 38, 38, 0.15) !important;
+        letter-spacing: 6px !important;
     }
 
     [data-testid="stCameraInput"] {
@@ -297,7 +290,6 @@ def delete_record(record_id):
 
 # ----------------- معالجة الصور وتفكيك اللوحة المغربية -----------------
 def preprocess_image_for_ocr(image_np):
-  """تحسين التباين وعزل أرقام اللوحة بوضوح"""
   gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
   clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
   contrast = clahe.apply(gray)
@@ -306,7 +298,6 @@ def preprocess_image_for_ocr(image_np):
 
 
 def parse_moroccan_plate(ocr_results):
-  """قراءة وتفكيك اللوحة مع تصحيح خلط الحروف والأرقام"""
   arabic_targets = {
       "أ": ["أ", "ا", "إ", "آ"],
       "ب": ["ب"],
@@ -328,7 +319,6 @@ def parse_moroccan_plate(ocr_results):
 
   combined_text = " ".join(detected_texts)
 
-  # 1. البحث عن الحرف
   detected_letter = ""
   for main_let, aliases in arabic_targets.items():
     for alias in aliases:
@@ -338,17 +328,13 @@ def parse_moroccan_plate(ocr_results):
     if detected_letter:
       break
 
-  # تصحيح خطأ قراءة حرف 'د' كرقم 5
   if not detected_letter:
     for item in detected_texts:
       if item == "5" or (len(item) == 1 and item in ["5", "o", "O"]):
         detected_letter = "د"
         break
 
-  # 2. استخراج الأرقام
   all_numbers = re.findall(r"\d+", combined_text)
-
-  # استبعاد الرقم 5 إذا استُخدم كحرف د
   if detected_letter == "د" and "5" in all_numbers and len(all_numbers) >= 2:
     all_numbers.remove("5")
 
@@ -358,7 +344,6 @@ def parse_moroccan_plate(ocr_results):
   if all_numbers:
     main_num = max(all_numbers, key=len)
     remaining_nums = [n for n in all_numbers if n != main_num]
-
     if remaining_nums:
       for rn in remaining_nums:
         if len(rn) <= 2:
@@ -684,22 +669,23 @@ if st.session_state.active_tab == "camera":
           "تعذر قراءة أرقام واضحة، حاول التقاط صورة أقرب للوحة أو سجلها يدوياً."
       )
 
-# ==================== 2. قسم الاستعلام مع خانة وزر بحث بارزين ====================
+# ==================== 2. قسم الاستعلام ====================
 elif st.session_state.active_tab == "search":
   st.subheader("🔍 استعلام وبحث فوري")
 
-  st.markdown(
-      '<div class="highlight-search-box">', unsafe_allow_html=True
-  )
   with st.form("search_form"):
-    query = st.text_input(
-        "🔎 أدخل رقم اللوحة، اسم الساكن، أو رقم العمارة:",
-        placeholder="اكتب هنا للبحث...",
-    )
-    search_submitted = st.form_submit_button(
-        "🔍 ابحث الآن", type="primary", use_container_width=True
-    )
-  st.markdown("</div>", unsafe_allow_html=True)
+    col_in, col_bt = st.columns([3, 1])
+    with col_in:
+      query = st.text_input(
+          "🔎 أدخل رقم اللوحة أو الساكن:",
+          value="",
+          placeholder="",
+          label_visibility="collapsed",
+      )
+    with col_bt:
+      search_submitted = st.form_submit_button(
+          "🔍 ابحث الآن", type="primary", use_container_width=True
+      )
 
   if search_submitted and query:
     df = get_all_records()
@@ -726,11 +712,11 @@ elif st.session_state.active_tab == "add":
   with st.form("manual_add"):
     c1, c2, c3 = st.columns([2, 1, 1])
     with c1:
-      p_num = st.text_input("أرقام اللوحة *", placeholder="78954")
+      p_num = st.text_input("أرقام اللوحة *", placeholder="")
     with c2:
       p_let = st.selectbox("حرف اللوحة", letters_list)
     with c3:
-      p_reg = st.text_input("العمالة", placeholder="26")
+      p_reg = st.text_input("العمالة", placeholder="")
 
     car_type = st.radio("الصفة:", ["مقيم", "زائر مؤقت"], horizontal=True)
 
@@ -779,14 +765,15 @@ elif st.session_state.active_tab == "admin":
   if "admin_authenticated" not in st.session_state:
     st.session_state.admin_authenticated = False
 
-  # خانة القن السري بلون بارز وزر تأكيد
+  # خانة القن السري البارزة والنظيفة
   if not st.session_state.admin_authenticated:
     st.markdown('<div class="highlight-pin-box">', unsafe_allow_html=True)
     with st.form("pin_form"):
       admin_pass = st.text_input(
           "🔐 أدخل القن السري للوصول للوحة الإدارة:",
           type="password",
-          placeholder="••••",
+          value="",
+          placeholder="",
       )
       pin_submit = st.form_submit_button(
           "🔓 تأكيد الدخول", type="primary", use_container_width=True
@@ -814,16 +801,25 @@ elif st.session_state.active_tab == "admin":
       missing_count = df["apartment"].replace("", np.nan).isna().sum()
       m3.metric("بحاجة لإكمال الشقة ⚠️", missing_count)
 
-      # ----------------- قسم التعديل عبر البحث المباشر -----------------
+      # ----------------- قسم التعديل عبر البحث المباشر النظيف -----------------
       st.markdown("---")
       st.subheader("✏️ البحث عن سيارة لتعديل أو استكمال معطياتها")
-      st.caption("اكتب رقم اللوحة، اسم الساكن، أو رقم العمارة للوصول للسجل مباشرة:")
+      st.caption("اكتب رقم اللوحة، اسم الساكن، أو رقم العمارة:")
 
-      edit_query = st.text_input(
-          "🔎 بحث عن السجل المراد تعديله:",
-          placeholder="مثال: 78954 أو بوشعيب أو عمارة 3",
-          key="edit_search_field",
-      )
+      with st.form("admin_search_subform"):
+        col_ed1, col_ed2 = st.columns([3, 1])
+        with col_ed1:
+          edit_query = st.text_input(
+              "🔎 بحث عن السجل:",
+              value="",
+              placeholder="",
+              label_visibility="collapsed",
+              key="edit_search_field",
+          )
+        with col_ed2:
+          btn_exec_search = st.form_submit_button(
+              "بحث 🔍", type="primary", use_container_width=True
+          )
 
       if edit_query:
         mask_edit = (
@@ -910,9 +906,7 @@ elif st.session_state.active_tab == "admin":
                   new_phone = st.text_input(
                       "رقم الهاتف",
                       value=(
-                          str(row_sel["phone"])
-                          if pd.notna(row_sel["phone"])
-                          else ""
+                          str(row_sel["phone"]) if pd.notna(row_sel["phone"]) else ""
                       ),
                   )
 
