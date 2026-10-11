@@ -16,6 +16,17 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# وضع وسم أيقونة الهاتف المخصصة (أيقونة سيارة)
+st.markdown(
+    """
+    <head>
+        <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3202/3202926.png">
+        <link rel="icon" type="image/png" href="https://cdn-icons-png.flaticon.com/512/3202/3202926.png">
+    </head>
+""",
+    unsafe_allow_html=True,
+)
+
 ADMIN_PIN = "1234"
 DB_FILE = "residence_parking.db"
 
