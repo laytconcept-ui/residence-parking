@@ -485,7 +485,7 @@ def render_car_card(row, allow_edit=True):
             clean_phone[1:] if clean_phone.startswith("0") else clean_phone
         )
         p_full = f"{p_num} | {p_let} | {p_reg}"
-        wa_msg = f"السلام عليكم، بخصوص سيارتكم رقم ({p_full}) المتوقفة في موقف إقامة نفيس، يرجى التكرم بتحريكها وشكراً."
+        wa_msg = f"السلام عليكم، معكم سانديك اقامة نفيس  بخصوص سيارتكم رقم ({p_full}) المتوقفة في موقف إقامة نفيس، يرجى التكرم بتحريكها وشكراً."
         wa_link = (
             f"https://wa.me/212{wa_phone}?text={wa_msg.replace(' ', '%20')}"
         )
