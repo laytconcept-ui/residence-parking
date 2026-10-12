@@ -19,6 +19,7 @@ st.set_page_config(
 ADMIN_PIN = "1234"
 DB_FILE = "residence_parking.db"
 
+# الحروف المعتمدة متضمنة "ي" و "ز"
 letters_list = ["", "أ", "ب", "د", "هـ", "ج", "ح", "ي", "ز", "ر", "WW"]
 
 
@@ -402,7 +403,7 @@ def parse_moroccan_plate(ocr_results):
   return main_num, detected_letter, region_num, full_display
 
 
-# ----------------- بطاقة عرض السيارة مع نموذج التعديل المضمون -----------------
+# ----------------- بطاقة عرض السيارة -----------------
 def render_car_card(row, allow_edit=True):
   p_num = clean_str(row.get("plate_number", ""))
   p_let = (
@@ -793,7 +794,7 @@ elif st.session_state.active_tab == "add":
       else:
         st.error("أدخل رقم اللوحة على الأقل.")
 
-# ==================== 4. قسم الإدارة وتعديل السجلات (مضمون 100%) ====================
+# ==================== 4. قسم الإدارة وتعديل السجلات ====================
 elif st.session_state.active_tab == "admin":
   st.subheader("🔒 إدارة المنظومة وتعديل السجلات")
 
@@ -839,7 +840,6 @@ elif st.session_state.active_tab == "admin":
       st.subheader("✏️ البحث عن سيارة لتعديل أو استكمال معطياتها")
       st.caption("اكتب رقم اللوحة، اسم الساكن، أو رقم العمارة:")
 
-      # خانة بحث مباشرة بدون form لتثبيت النتائج أثناء التعديل
       edit_query = st.text_input(
           "🔎 بحث عن السجل:",
           value="",
@@ -953,7 +953,6 @@ elif st.session_state.active_tab == "admin":
                     key=f"adm_notes_{selected_car_id}",
                 )
 
-              # زر حفظ مباشر مستقل يضمن الحفظ الفوري في قاعدة البيانات
               if st.button(
                   "💾 حفظ وتحديث المعطيات فوراً",
                   key=f"btn_save_adm_{selected_car_id}",
