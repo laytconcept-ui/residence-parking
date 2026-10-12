@@ -19,7 +19,6 @@ st.set_page_config(
 ADMIN_PIN = "1234"
 DB_FILE = "residence_parking.db"
 
-# الحروف المعتمدة متضمنة حرف "و"
 letters_list = ["", "أ", "ب", "د", "هـ", "و", "ج", "ح", "ي", "ز", "ر", "WW"]
 
 
@@ -124,17 +123,21 @@ st.markdown(
         letter-spacing: 6px !important;
     }
 
+    /* تكبير وتوسيع حيز الكاميرا وإطار المعاينة بشكل ملحوظ */
     [data-testid="stCameraInput"] {
         width: 100% !important;
         max-width: 100% !important;
+        margin: 0 auto !important;
     }
     [data-testid="stCameraInput"] video {
         width: 100% !important;
         height: auto !important;
-        min-height: 270px !important;
-        border-radius: 16px !important;
-        border: 3px solid #3b82f6 !important;
-        box-shadow: 0 12px 30px rgba(59, 130, 246, 0.2) !important;
+        min-height: 380px !important;
+        max-height: 520px !important;
+        border-radius: 18px !important;
+        border: 3px solid #2563eb !important;
+        box-shadow: 0 14px 35px rgba(37, 99, 235, 0.25) !important;
+        object-fit: cover !important;
     }
 
     .morocco-plate-tag {
@@ -334,10 +337,22 @@ def delete_record(record_id):
   conn.close()
 
 
-# ----------------- معالجة الصور وتفكيك اللوحة المغربية -----------------
-def preprocess_image_for_ocr(image_np):
+# ----------------- معالجة الصور، الزووم وتفكيك اللوحة -----------------
+def apply_zoom_and_preprocess(image_np, zoom_level=1.0):
+  """تطبيق الزووم الرقمي لتحسين وضوح اللوحة عن بُعد"""
+  h, w = image_np.shape[:2]
+  if zoom_level > 1.0:
+    crop_h = int(h / zoom_level)
+    crop_w = int(w / zoom_level)
+    start_y = (h - crop_h) // 2
+    start_x = (w - crop_w) // 2
+    image_np = image_np[start_y : start_y + crop_h, start_x : start_x + crop_w]
+    image_np = cv2.resize(
+        image_np, (w, h), interpolation=cv2.INTER_LANCZOS4
+    )
+
   gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
-  clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+  clahe = cv2.createCLAHE(clipLimit=2.2, tileGridSize=(8, 8))
   contrast = clahe.apply(gray)
   denoised = cv2.bilateralFilter(contrast, 9, 75, 75)
   return denoised
@@ -404,7 +419,7 @@ def parse_moroccan_plate(ocr_results):
   return main_num, detected_letter, region_num, full_display
 
 
-# ----------------- بطاقة عرض السيارة مع نموذج التعديل -----------------
+# ----------------- بطاقة عرض السيارة -----------------
 def render_car_card(row, allow_edit=True):
   p_num = clean_str(row.get("plate_number", ""))
   p_let = (
@@ -610,9 +625,23 @@ with nav_c4:
 
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
-# ==================== 1. قسم الكاميرا ====================
+# ==================== 1. قسم الكاميرا والتحكم بالزووم ====================
 if st.session_state.active_tab == "camera":
   st.subheader("📷 التقاط لوحة السيارة")
+
+  # زر والتحكم بالزووم (Zoom Control)
+  c_zm1, c_zm2 = st.columns([1, 2])
+  with c_zm1:
+    st.markdown("🔍 **تكبير الكاميرا (Zoom):**")
+  with c_zm2:
+    zoom_val = st.select_slider(
+        "مستوى التكبير",
+        options=[1.0, 1.5, 2.0, 2.5, 3.0],
+        value=1.0,
+        format_func=lambda x: f"{x}x",
+        label_visibility="collapsed",
+    )
+
   camera_file = st.camera_input("")
 
   if camera_file is not None:
@@ -620,8 +649,8 @@ if st.session_state.active_tab == "camera":
     image = Image.open(io.BytesIO(camera_file.getvalue()))
     image_np = np.array(image)
 
-    with st.spinner("⚡ جاري تحسين الصورة وقراءة الترقيم بدقة..."):
-      processed_np = preprocess_image_for_ocr(image_np)
+    with st.spinner("⚡ جاري تكبير الصورة وتحسين قراءة الترقيم..."):
+      processed_np = apply_zoom_and_preprocess(image_np, zoom_level=zoom_val)
       results = reader.readtext(
           processed_np, allowlist="0123456789أبدهوجحيخزرWW -|"
       )
@@ -701,7 +730,8 @@ if st.session_state.active_tab == "camera":
               st.error("يرجى كتابة رقم اللوحة.")
     else:
       st.warning(
-          "تعذر قراءة أرقام واضحة، حاول التقاط صورة أقرب للوحة أو سجلها يدوياً."
+          "تعذر قراءة أرقام واضحة، جرّب زيادة الزوم أو الاقتراب قليلاً من"
+          " اللوحة."
       )
 
 # ==================== 2. قسم الاستعلام ====================
