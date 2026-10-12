@@ -19,8 +19,8 @@ st.set_page_config(
 ADMIN_PIN = "1234"
 DB_FILE = "residence_parking.db"
 
-# الحروف المعتمدة متضمنة "ي" و "ز"
-letters_list = ["", "أ", "ب", "د", "هـ", "ج", "ح", "ي", "ز", "ر", "WW"]
+# الحروف المعتمدة متضمنة حرف "و"
+letters_list = ["", "أ", "ب", "د", "هـ", "و", "ج", "ح", "ي", "ز", "ر", "WW"]
 
 
 def clean_str(val):
@@ -349,6 +349,7 @@ def parse_moroccan_plate(ocr_results):
       "ب": ["ب"],
       "د": ["د", "ذ"],
       "هـ": ["هـ", "ه", "ة"],
+      "و": ["و"],
       "ج": ["ج"],
       "ح": ["ح", "خ"],
       "ي": ["ي", "ى"],
@@ -403,7 +404,7 @@ def parse_moroccan_plate(ocr_results):
   return main_num, detected_letter, region_num, full_display
 
 
-# ----------------- بطاقة عرض السيارة -----------------
+# ----------------- بطاقة عرض السيارة مع نموذج التعديل -----------------
 def render_car_card(row, allow_edit=True):
   p_num = clean_str(row.get("plate_number", ""))
   p_let = (
@@ -622,7 +623,7 @@ if st.session_state.active_tab == "camera":
     with st.spinner("⚡ جاري تحسين الصورة وقراءة الترقيم بدقة..."):
       processed_np = preprocess_image_for_ocr(image_np)
       results = reader.readtext(
-          processed_np, allowlist="0123456789أبدجهحيخزرWW -|"
+          processed_np, allowlist="0123456789أبدهوجحيخزرWW -|"
       )
 
     main_num, detected_let, region_num, full_display = parse_moroccan_plate(
