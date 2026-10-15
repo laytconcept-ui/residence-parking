@@ -1,4 +1,5 @@
 import io
+import os
 import re
 import sqlite3
 from datetime import datetime
@@ -122,6 +123,7 @@ st.markdown(
         letter-spacing: 6px !important;
     }
 
+    /* إطار الكاميرا الطبيعي والواضح */
     [data-testid="stCameraInput"] {
         width: 100% !important;
         max-width: 100% !important;
@@ -130,12 +132,10 @@ st.markdown(
     [data-testid="stCameraInput"] video {
         width: 100% !important;
         height: auto !important;
-        min-height: 380px !important;
-        max-height: 520px !important;
-        border-radius: 18px !important;
+        min-height: 320px !important;
+        border-radius: 16px !important;
         border: 3px solid #2563eb !important;
-        box-shadow: 0 14px 35px rgba(37, 99, 235, 0.25) !important;
-        object-fit: cover !important;
+        box-shadow: 0 10px 25px rgba(37, 99, 235, 0.2) !important;
     }
 
     .morocco-plate-tag {
@@ -195,7 +195,6 @@ def init_db():
         )
     """)
 
-  # جدول دليل الشقق مع مفتاح مركب (عمارة + شقة)
   c.execute("""
         CREATE TABLE IF NOT EXISTS apartments_directory (
             building TEXT,
@@ -245,7 +244,6 @@ def get_all_records():
 
 
 def get_apartment_info(bld_num, apt_num):
-  """البحث عن معطيات الساكن برقم العمارة ورقم الشقة معاً"""
   b_clean = clean_str(bld_num)
   a_clean = clean_str(apt_num)
   if not a_clean:
@@ -262,7 +260,6 @@ def get_apartment_info(bld_num, apt_num):
     )
     res = c.fetchone()
   else:
-    # إذا لم يدخل العمارة نجلب أول نتيجة مطابقة
     c.execute(
         "SELECT building, resident_name, phone FROM apartments_directory WHERE"
         " apartment = ?",
@@ -397,27 +394,17 @@ def delete_record(record_id):
   conn.close()
 
 
-# ----------------- معالجة الصور، الزووم وتفكيك اللوحة -----------------
-def apply_zoom_and_preprocess(image_np, zoom_level=1.0):
-  h, w = image_np.shape[:2]
-  if zoom_level > 1.0:
-    crop_h = int(h / zoom_level)
-    crop_w = int(w / zoom_level)
-    start_y = (h - crop_h) // 2
-    start_x = (w - crop_w) // 2
-    image_np = image_np[start_y : start_y + crop_h, start_x : start_x + crop_w]
-    image_np = cv2.resize(
-        image_np, (w, h), interpolation=cv2.INTER_LANCZOS4
-    )
-
+# ----------------- معالجة الصور الطبيعية والمثالية -----------------
+def clean_image_for_ocr(image_np):
+  """تحويل الصورة الطبيعي مع المحافظة التامة على نقاء وتفاصيل الخط الأصلي"""
   gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
-  clahe = cv2.createCLAHE(clipLimit=2.2, tileGridSize=(8, 8))
-  contrast = clahe.apply(gray)
-  denoised = cv2.bilateralFilter(contrast, 9, 75, 75)
-  return denoised
+  # تحسين بسيط للتباين دون إتلاف حواف الحروف
+  enhanced = cv2.equalizeHist(gray)
+  return enhanced
 
 
 def parse_moroccan_plate(ocr_results):
+  """تفكيك الأرقام والحروف بدقة وبدون خلط"""
   arabic_targets = {
       "أ": ["أ", "ا", "إ", "آ"],
       "ب": ["ب"],
@@ -440,6 +427,7 @@ def parse_moroccan_plate(ocr_results):
 
   combined_text = " ".join(detected_texts)
 
+  # 1. التقاط الحرف العربي
   detected_letter = ""
   for main_let, aliases in arabic_targets.items():
     for alias in aliases:
@@ -449,12 +437,14 @@ def parse_moroccan_plate(ocr_results):
     if detected_letter:
       break
 
+  # تصحيح خاص لخلط الحرف د بالرقم 5
   if not detected_letter:
     for item in detected_texts:
       if item == "5" or (len(item) == 1 and item in ["5", "o", "O"]):
         detected_letter = "د"
         break
 
+  # 2. استخراج الأرقام
   all_numbers = re.findall(r"\d+", combined_text)
   if detected_letter == "د" and "5" in all_numbers and len(all_numbers) >= 2:
     all_numbers.remove("5")
@@ -685,21 +675,10 @@ with nav_c4:
 
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
-# ==================== 1. قسم الكاميرا ====================
+# ==================== 1. قسم الكاميرا فائق الدقة ====================
 if st.session_state.active_tab == "camera":
   st.subheader("📷 التقاط لوحة السيارة")
-
-  c_zm1, c_zm2 = st.columns([1, 2])
-  with c_zm1:
-    st.markdown("🔍 **تكبير الكاميرا (Zoom):**")
-  with c_zm2:
-    zoom_val = st.select_slider(
-        "مستوى التكبير",
-        options=[1.0, 1.5, 2.0, 2.5, 3.0],
-        value=1.0,
-        format_func=lambda x: f"{x}x",
-        label_visibility="collapsed",
-    )
+  st.caption("وجه الكاميرا بوضوح بحيث تملأ اللوحة معظم الشاشة:")
 
   camera_file = st.camera_input("")
 
@@ -708,10 +687,14 @@ if st.session_state.active_tab == "camera":
     image = Image.open(io.BytesIO(camera_file.getvalue()))
     image_np = np.array(image)
 
-    with st.spinner("⚡ جاري تكبير الصورة وتحسين قراءة الترقيم..."):
-      processed_np = apply_zoom_and_preprocess(image_np, zoom_level=zoom_val)
+    with st.spinner("⚡ جاري قراءة الترقيم بأعلى دقة..."):
+      processed_np = clean_image_for_ocr(image_np)
+      # قراءة مباشرة بصورة نظيفة وغير مشوهة
       results = reader.readtext(
-          processed_np, allowlist="0123456789أبدهوجحيخزرWW -|"
+          processed_np,
+          allowlist="0123456789أبدهوجحيخزرWW -|",
+          detail=1,
+          paragraph=False,
       )
 
     main_num, detected_let, region_num, full_display = parse_moroccan_plate(
@@ -773,7 +756,6 @@ if st.session_state.active_tab == "camera":
               "جلب ⚡", use_container_width=True, type="secondary"
           )
 
-        # البحث بالعمارة والشقة معاً
         apt_data = (
             get_apartment_info(entered_bld, entered_apt)
             if (entered_bld or entered_apt)
@@ -829,7 +811,7 @@ if st.session_state.active_tab == "camera":
             st.error("يرجى كتابة رقم اللوحة.")
     else:
       st.warning(
-          "تعذر قراءة أرقام واضحة، جرّب زيادة الزوم أو التقاط صورة أقرب للوحة."
+          "تعذر قراءة أرقام واضحة، حاول التقاط صورة أقرب للوحة السيارة."
       )
 
 # ==================== 2. قسم الاستعلام ====================
@@ -984,7 +966,6 @@ elif st.session_state.active_tab == "admin":
       try:
         dir_df = pd.read_excel(uploaded_dir)
 
-        # فحص إن كانت الترويسة في أول سطر
         first_row_vals = [
             str(v).lower().strip() for v in dir_df.iloc[0].values
         ]
@@ -1052,6 +1033,7 @@ elif st.session_state.active_tab == "admin":
       missing_count = df["apartment"].replace("", np.nan).isna().sum()
       m3.metric("بحاجة لإكمال الشقة ⚠️", missing_count)
 
+      # ----------------- قسم التعديل عبر البحث المباشر -----------------
       st.markdown("---")
       st.subheader("✏️ البحث عن سيارة لتعديل أو استكمال معطياتها")
       st.caption("اكتب رقم اللوحة، اسم الساكن، أو رقم العمارة:")
