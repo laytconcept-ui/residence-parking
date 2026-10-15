@@ -123,7 +123,6 @@ st.markdown(
         letter-spacing: 6px !important;
     }
 
-    /* تكبير وتوسيع حيز الكاميرا وإطار المعاينة بشكل ملحوظ */
     [data-testid="stCameraInput"] {
         width: 100% !important;
         max-width: 100% !important;
@@ -179,6 +178,7 @@ def get_ocr_reader():
 def init_db():
   conn = sqlite3.connect(DB_FILE)
   c = conn.cursor()
+  # جدول السيارات
   c.execute("""
         CREATE TABLE IF NOT EXISTS residents_cars (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -196,6 +196,17 @@ def init_db():
             notes TEXT
         )
     """)
+
+  # جدول دليل الشقق وسكانها
+  c.execute("""
+        CREATE TABLE IF NOT EXISTS apartments_directory (
+            apartment TEXT PRIMARY KEY,
+            building TEXT,
+            resident_name TEXT,
+            phone TEXT
+        )
+    """)
+
   cols = [
       ("full_plate", "TEXT"),
       ("car_type", "TEXT DEFAULT 'مقيم'"),
@@ -232,6 +243,43 @@ def get_all_records():
       df[col] = df[col].apply(clean_str)
 
   return df
+
+
+def get_apartment_info(apt_num):
+  """البحث عن معطيات الشقة من الدليل المخزن"""
+  apt_clean = clean_str(apt_num)
+  if not apt_clean:
+    return None
+  conn = sqlite3.connect(DB_FILE)
+  c = conn.cursor()
+  c.execute(
+      "SELECT building, resident_name, phone FROM apartments_directory WHERE"
+      " apartment = ?",
+      (apt_clean,),
+  )
+  res = c.fetchone()
+  conn.close()
+  if res:
+    return {
+        "building": clean_str(res[0]),
+        "resident_name": clean_str(res[1]),
+        "phone": clean_str(res[2]),
+    }
+  return None
+
+
+def add_or_update_apartment_dir(apt, bld, name, phone):
+  conn = sqlite3.connect(DB_FILE)
+  c = conn.cursor()
+  c.execute(
+      """
+        INSERT OR REPLACE INTO apartments_directory (apartment, building, resident_name, phone)
+        VALUES (?, ?, ?, ?)
+    """,
+      (clean_str(apt), clean_str(bld), clean_str(name), clean_str(phone)),
+  )
+  conn.commit()
+  conn.close()
 
 
 def add_record(
@@ -339,7 +387,6 @@ def delete_record(record_id):
 
 # ----------------- معالجة الصور، الزووم وتفكيك اللوحة -----------------
 def apply_zoom_and_preprocess(image_np, zoom_level=1.0):
-  """تطبيق الزووم الرقمي لتحسين وضوح اللوحة عن بُعد"""
   h, w = image_np.shape[:2]
   if zoom_level > 1.0:
     crop_h = int(h / zoom_level)
@@ -485,7 +532,7 @@ def render_car_card(row, allow_edit=True):
             clean_phone[1:] if clean_phone.startswith("0") else clean_phone
         )
         p_full = f"{p_num} | {p_let} | {p_reg}"
-        wa_msg = f"السلام عليكم، معكم سانديك اقامة نفيس  بخصوص سيارتكم رقم ({p_full}) المتوقفة في موقف إقامة نفيس، يرجى التكرم بتحريكها وشكراً."
+        wa_msg = f"السلام عليكم، بخصوص سيارتكم رقم ({p_full}) المتوقفة في موقف إقامة نفيس، يرجى التكرم بتحريكها وشكراً."
         wa_link = (
             f"https://wa.me/212{wa_phone}?text={wa_msg.replace(' ', '%20')}"
         )
@@ -495,30 +542,41 @@ def render_car_card(row, allow_edit=True):
       with st.expander("✏️ تعديل أو إكمال معطيات هذه السيارة"):
         col_e1, col_e2 = st.columns(2)
         with col_e1:
-          e_bld = st.text_input(
-              "العمارة",
-              value=clean_str(row["building"]),
-              key=f"card_bld_{rec_id}",
-          )
-          e_name = st.text_input(
-              "اسم الساكن",
-              value=(
-                  str(row["resident_name"])
-                  if pd.notna(row["resident_name"])
-                  else ""
-              ),
-              key=f"card_name_{rec_id}",
-          )
-        with col_e2:
           e_apt = st.text_input(
               "الشقة",
               value=clean_str(row["apartment"]),
               key=f"card_apt_{rec_id}",
           )
+          # جلب تلقائي إذا كانت متوفرة
+          auto_info = get_apartment_info(e_apt) if e_apt else None
+          def_bld = (
+              auto_info["building"]
+              if auto_info
+              else clean_str(row["building"])
+          )
+          def_name = (
+              auto_info["resident_name"]
+              if auto_info
+              else (
+                  str(row["resident_name"])
+                  if pd.notna(row["resident_name"])
+                  else ""
+              )
+          )
+          def_phone = (
+              auto_info["phone"] if auto_info else clean_str(row["phone"])
+          )
+
+          e_bld = st.text_input(
+              "العمارة", value=def_bld, key=f"card_bld_{rec_id}"
+          )
+
+        with col_e2:
+          e_name = st.text_input(
+              "اسم الساكن", value=def_name, key=f"card_name_{rec_id}"
+          )
           e_phone = st.text_input(
-              "رقم الهاتف",
-              value=clean_str(row["phone"]),
-              key=f"card_phone_{rec_id}",
+              "رقم الهاتف", value=def_phone, key=f"card_phone_{rec_id}"
           )
 
         col_e3, col_e4 = st.columns(2)
@@ -629,7 +687,6 @@ st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 if st.session_state.active_tab == "camera":
   st.subheader("📷 التقاط لوحة السيارة")
 
-  # زر والتحكم بالزووم (Zoom Control)
   c_zm1, c_zm2 = st.columns([1, 2])
   with c_zm1:
     st.markdown("🔍 **تكبير الكاميرا (Zoom):**")
@@ -673,65 +730,114 @@ if st.session_state.active_tab == "camera":
           render_car_card(row, allow_edit=True)
       else:
         st.success(f"🎯 ترقيم مرصود: **{full_display}**")
-        with st.form("census_form"):
-          c_p1, c_p2, c_p3 = st.columns([2, 1, 1])
-          with c_p1:
-            p_num = st.text_input("الأرقام *", value=main_num)
-          with c_p2:
-            idx = (
-                letters_list.index(detected_let)
-                if detected_let in letters_list
-                else 0
+
+        # معالجة جلب بيانات الشقة تلقائياً
+        if "cam_scanned_apt" not in st.session_state:
+          st.session_state.cam_scanned_apt = ""
+
+        c_p1, c_p2, c_p3 = st.columns([2, 1, 1])
+        with c_p1:
+          p_num = st.text_input("الأرقام *", value=main_num, key="cam_pnum")
+        with c_p2:
+          idx = (
+              letters_list.index(detected_let)
+              if detected_let in letters_list
+              else 0
+          )
+          p_let = st.selectbox(
+              "الحرف", letters_list, index=idx, key="cam_plet"
+          )
+        with c_p3:
+          p_reg = st.text_input(
+              "العمالة", value=region_num, placeholder="26", key="cam_preg"
+          )
+
+        car_type = st.radio(
+            "الصفة:", ["مقيم", "زائر مؤقت"], horizontal=True, key="cam_type"
+        )
+
+        st.markdown("---")
+        st.markdown("🏢 **ربط السيارة بالشقة والقاطن:**")
+
+        col_apt_in, col_apt_btn = st.columns([3, 1])
+        with col_apt_in:
+          entered_apt = st.text_input(
+              "🚪 أدخل رقم الشقة لجلب المعطيات تلقائياً:",
+              placeholder="مثال: 14",
+              key="cam_apt_input",
+          )
+        with col_apt_btn:
+          fetch_btn = st.button(
+              "جلب المعطيات ⚡", use_container_width=True, type="secondary"
+          )
+
+        # جلب البيانات من الدليل إذا وُجدت
+        apt_data = get_apartment_info(entered_apt) if entered_apt else None
+        if apt_data:
+          st.info(
+              f"✅ تم التعرف على الشقة: {apt_data['resident_name']} | عمارة:"
+              f" {apt_data['building']}"
+          )
+
+        c_b, c_a = st.columns(2)
+        with c_b:
+          bld_val = (
+              apt_data["building"]
+              if apt_data
+              else st.session_state.get("cam_bld", "")
+          )
+          bld = st.text_input(
+              "رقم العمارة", value=bld_val, placeholder="مثال: 12"
+          )
+        with c_a:
+          name_val = (
+              apt_data["resident_name"]
+              if apt_data
+              else st.session_state.get("cam_name", "")
+          )
+          name = st.text_input(
+              "اسم الساكن", value=name_val, placeholder="الاسم الكامل"
+          )
+
+        phone_val = (
+            apt_data["phone"]
+            if apt_data
+            else st.session_state.get("cam_phone", "")
+        )
+        phone = st.text_input(
+            "رقم الهاتف", value=phone_val, placeholder="06XXXXXXXX"
+        )
+        car_desc = st.text_input("نوع ولون السيارة (اختياري)")
+
+        if st.button(
+            "💾 حفظ الترقيم والمعطيات في المنظومة",
+            type="primary",
+            use_container_width=True,
+        ):
+          if p_num:
+            p_num = clean_str(p_num)
+            p_reg = clean_str(p_reg)
+            full_plate_str = f"{p_num} | {p_let} | {p_reg}"
+            add_record(
+                bld,
+                entered_apt,
+                name,
+                phone,
+                p_num,
+                p_let,
+                p_reg,
+                full_plate_str,
+                car_type,
+                car_desc,
+                "",
             )
-            p_let = st.selectbox("الحرف", letters_list, index=idx)
-          with c_p3:
-            p_reg = st.text_input("العمالة", value=region_num, placeholder="26")
-
-          car_type = st.radio(
-              "الصفة:", ["مقيم", "زائر مؤقت"], horizontal=True
-          )
-
-          st.caption(
-              "👇 الخانات التالية اختيارية (يمكنك الحفظ الآن وإكمالها لاحقاً):"
-          )
-          c_b, c_a = st.columns(2)
-          with c_b:
-            bld = st.text_input("العمارة", placeholder="مثال: 12")
-          with c_a:
-            apt = st.text_input("الشقة", placeholder="مثال: 4")
-
-          name = st.text_input("اسم الساكن (اختياري)")
-          phone = st.text_input("الهاتف (اختياري)")
-          car_desc = st.text_input("نوع ولون السيارة (اختياري)")
-
-          if st.form_submit_button(
-              "💾 حفظ الترقيم فوراً في النظام", use_container_width=True
-          ):
-            if p_num:
-              p_num = clean_str(p_num)
-              p_reg = clean_str(p_reg)
-              full_plate_str = f"{p_num} | {p_let} | {p_reg}"
-              add_record(
-                  bld,
-                  apt,
-                  name,
-                  phone,
-                  p_num,
-                  p_let,
-                  p_reg,
-                  full_plate_str,
-                  car_type,
-                  car_desc,
-                  "",
-              )
-              st.success("تم الحفظ بنجاح!")
-              st.rerun()
-            else:
-              st.error("يرجى كتابة رقم اللوحة.")
+            st.success("تم الحفظ بنجاح!")
+            st.rerun()
+          else:
+            st.error("يرجى كتابة رقم اللوحة.")
     else:
       st.warning(
-          "تعذر قراءة أرقام واضحة، جرّب زيادة الزوم أو الاقتراب قليلاً من"
-          " اللوحة."
+          "تعذر قراءة أرقام واضحة، جرّب زيادة الزوم أو التقاط صورة أقرب للوحة."
       )
 
 # ==================== 2. قسم الاستعلام ====================
@@ -774,60 +880,77 @@ elif st.session_state.active_tab == "search":
 # ==================== 3. قسم التسجيل اليدوي ====================
 elif st.session_state.active_tab == "add":
   st.subheader("➕ تسجيل سيارة يدوياً")
-  with st.form("manual_add"):
-    c1, c2, c3 = st.columns([2, 1, 1])
-    with c1:
-      p_num = st.text_input("أرقام اللوحة *", placeholder="")
-    with c2:
-      p_let = st.selectbox("حرف اللوحة", letters_list)
-    with c3:
-      p_reg = st.text_input("العمالة", placeholder="")
 
-    car_type = st.radio("الصفة:", ["مقيم", "زائر مؤقت"], horizontal=True)
+  c1, c2, c3 = st.columns([2, 1, 1])
+  with c1:
+    p_num = st.text_input("أرقام اللوحة *", placeholder="78954")
+  with c2:
+    p_let = st.selectbox("حرف اللوحة", letters_list)
+  with c3:
+    p_reg = st.text_input("العمالة", placeholder="26")
 
-    c_b, c_a = st.columns(2)
-    with c_b:
-      bld = st.text_input("العمارة (اختياري)")
-    with c_a:
-      apt = st.text_input("الشقة (اختياري)")
+  car_type = st.radio("الصفة:", ["مقيم", "زائر مؤقت"], horizontal=True)
 
-    name = st.text_input("اسم الساكن (اختياري)")
-    phone = st.text_input("رقم الهاتف (اختياري)")
-    car_desc = st.text_input("نوع ولون السيارة")
+  st.markdown("🏢 **ربط الشقة:**")
+  col_m_apt, col_m_btn = st.columns([3, 1])
+  with col_m_apt:
+    m_apt = st.text_input(
+        "رقم الشقة:", placeholder="أدخل رقم الشقة", key="m_apt_input"
+    )
+  with col_m_btn:
+    btn_m_fetch = st.button(
+        "جلب المعطيات ⚡", key="m_fetch", use_container_width=True
+    )
 
-    if st.form_submit_button("💾 حفظ في المنظومة", use_container_width=True):
-      if p_num:
-        p_num = clean_str(p_num)
-        p_reg = clean_str(p_reg)
-        df = get_all_records()
-        if (
-            not df.empty
-            and not df[df["plate_number"].astype(str) == str(p_num)].empty
-        ):
-          st.error(f"⛔ اللوحة ({p_num}) مسجلة مسبقاً بالفعل في المنظومة!")
-        else:
-          full_plate_str = f"{p_num} | {p_let} | {p_reg}"
-          add_record(
-              bld,
-              apt,
-              name,
-              phone,
-              p_num,
-              p_let,
-              p_reg,
-              full_plate_str,
-              car_type,
-              car_desc,
-              "",
-          )
-          st.success("تم الحفظ بنجاح!")
-          st.rerun()
+  m_data = get_apartment_info(m_apt) if m_apt else None
+
+  c_b, c_a = st.columns(2)
+  with c_b:
+    bld = st.text_input(
+        "العمارة", value=m_data["building"] if m_data else "", key="m_bld_input"
+    )
+  with c_a:
+    name = st.text_input(
+        "اسم الساكن",
+        value=m_data["resident_name"] if m_data else "",
+        key="m_name_input",
+    )
+
+  phone = st.text_input(
+      "رقم الهاتف", value=m_data["phone"] if m_data else "", key="m_phone_input"
+  )
+  car_desc = st.text_input("نوع ولون السيارة")
+
+  if st.button("💾 حفظ في المنظومة", type="primary", use_container_width=True):
+    if p_num:
+      p_num = clean_str(p_num)
+      p_reg = clean_str(p_reg)
+      df = get_all_records()
+      if not df.empty and not df[df["plate_number"].astype(str) == str(p_num)].empty:
+        st.error(f"⛔ اللوحة ({p_num}) مسجلة مسبقاً بالفعل في المنظومة!")
       else:
-        st.error("أدخل رقم اللوحة على الأقل.")
+        full_plate_str = f"{p_num} | {p_let} | {p_reg}"
+        add_record(
+            bld,
+            m_apt,
+            name,
+            phone,
+            p_num,
+            p_let,
+            p_reg,
+            full_plate_str,
+            car_type,
+            car_desc,
+            "",
+        )
+        st.success("تم الحفظ بنجاح!")
+        st.rerun()
+    else:
+      st.error("أدخل رقم اللوحة على الأقل.")
 
-# ==================== 4. قسم الإدارة وتعديل السجلات ====================
+# ==================== 4. قسم الإدارة وتحميل دليل الشقق ====================
 elif st.session_state.active_tab == "admin":
-  st.subheader("🔒 إدارة المنظومة وتعديل السجلات")
+  st.subheader("🔒 إدارة المنظومة ودليل الشقق")
 
   if "admin_authenticated" not in st.session_state:
     st.session_state.admin_authenticated = False
@@ -857,9 +980,63 @@ elif st.session_state.active_tab == "admin":
     st.success("🔓 تم الدخول كمسؤول للمنظومة.")
     df = get_all_records()
 
+    # قسم رفع قاعدة بيانات الشقق وسكانها
+    st.markdown("---")
+    st.subheader("🏢 رفع وتحديث دليل الشقق والسكان (Excel)")
+    st.caption(
+        "ارفع ملف Excel يحتوي على أعمدة: رقم الشقة (apartment)، العمارة"
+        " (building)، اسم الساكن (resident_name)، الهاتف (phone):"
+    )
+
+    uploaded_dir = st.file_uploader(
+        "اختر ملف Excel الخاص بسكان الإقامة", type=["xlsx", "xls"]
+    )
+    if uploaded_dir is not None:
+      try:
+        dir_df = pd.read_excel(uploaded_dir)
+        # توحيد أسماء الأعمدة لتفادي أخطاء التسمية
+        col_map = {}
+        for col in dir_df.columns:
+          c_lower = str(col).lower().strip()
+          if "شقة" in c_lower or "apt" in c_lower or "apartment" in c_lower:
+            col_map[col] = "apartment"
+          elif "عمارة" in c_lower or "immeuble" in c_lower or "bld" in c_lower:
+            col_map[col] = "building"
+          elif "اسم" in c_lower or "nom" in c_lower or "resident" in c_lower:
+            col_map[col] = "resident_name"
+          elif "هاتف" in c_lower or "tel" in c_lower or "phone" in c_lower:
+            col_map[col] = "phone"
+
+        dir_df = dir_df.rename(columns=col_map)
+
+        if "apartment" in dir_df.columns:
+          added_count = 0
+          for _, row in dir_df.iterrows():
+            apt = clean_str(row.get("apartment", ""))
+            bld = clean_str(row.get("building", ""))
+            name = clean_str(row.get("resident_name", ""))
+            phone = clean_str(row.get("phone", ""))
+            if apt:
+              add_or_update_apartment_dir(apt, bld, name, phone)
+              added_count += 1
+          st.success(f"🎉 تم تسجيل وتحديث ({added_count}) شقة وسكانها بنجاح!")
+        else:
+          st.error(
+              "الملف المرفوع يجب أن يحتوي على عمود لرقم الشقة (apartment)."
+          )
+      except Exception as e:
+        st.error(f"حدث خطأ أثناء قراءة الملف: {e}")
+
+    # عرض إحصائيات الدليل
+    conn = sqlite3.connect(DB_FILE)
+    apt_count = conn.cursor().execute("SELECT COUNT(*) FROM apartments_directory").fetchone()[0]
+    conn.close()
+    st.info(f"إجمالي الشقق المسجلة في دليل الإقامة حالياً: **{apt_count} شقة**")
+
     if not df.empty:
+      st.markdown("---")
       m1, m2, m3 = st.columns(3)
-      m1.metric("إجمالي السيارات", len(df))
+      m1.metric("إجمالي السيارات المسجلة", len(df))
       m2.metric(
           "مكتملة البيانات",
           df["apartment"].replace("", np.nan).dropna().count(),
@@ -867,6 +1044,7 @@ elif st.session_state.active_tab == "admin":
       missing_count = df["apartment"].replace("", np.nan).isna().sum()
       m3.metric("بحاجة لإكمال الشقة ⚠️", missing_count)
 
+      # ----------------- قسم التعديل عبر البحث المباشر -----------------
       st.markdown("---")
       st.subheader("✏️ البحث عن سيارة لتعديل أو استكمال معطياتها")
       st.caption("اكتب رقم اللوحة، اسم الساكن، أو رقم العمارة:")
@@ -940,11 +1118,17 @@ elif st.session_state.active_tab == "admin":
 
               c1, c2 = st.columns(2)
               with c1:
+                new_apt = st.text_input(
+                    "رقم الشقة",
+                    value=clean_str(row_sel["apartment"]),
+                    key=f"adm_apt_{selected_car_id}",
+                )
                 new_bld = st.text_input(
                     "رقم العمارة",
                     value=clean_str(row_sel["building"]),
                     key=f"adm_bld_{selected_car_id}",
                 )
+              with c2:
                 new_name = st.text_input(
                     "اسم الساكن",
                     value=(
@@ -953,12 +1137,6 @@ elif st.session_state.active_tab == "admin":
                         else ""
                     ),
                     key=f"adm_name_{selected_car_id}",
-                )
-              with c2:
-                new_apt = st.text_input(
-                    "رقم الشقة",
-                    value=clean_str(row_sel["apartment"]),
-                    key=f"adm_apt_{selected_car_id}",
                 )
                 new_phone = st.text_input(
                     "رقم الهاتف",
@@ -1041,9 +1219,9 @@ elif st.session_state.active_tab == "admin":
       st.info("لا توجد سيارات مسجلة بعد.")
 
     st.markdown("---")
-    with st.expander("📤 استعادة أو رفع بيانات من ملف Excel"):
+    with st.expander("📤 استعادة أو رفع بيانات سيارات من ملف Excel"):
       uploaded_excel = st.file_uploader(
-          "اختر ملف Excel لاسترجاع السيارات", type=["xlsx"]
+          "اختر ملف Excel لاسترجاع السيارات المسجلة", type=["xlsx"]
       )
       if uploaded_excel is not None:
         df_up = pd.read_excel(uploaded_excel)
