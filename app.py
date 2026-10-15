@@ -26,8 +26,15 @@ apt_types_list = ["", "F2", "F3", "F4", "F5", "أخرى"]
 
 
 def clean_str(val):
+  """تحويل نظيف وآمن للقيم مع الحماية التامة من خطأ Pandas Series"""
+  if isinstance(val, (pd.Series, np.ndarray, list)):
+    if len(val) == 0:
+      return ""
+    val = val.iloc[0] if hasattr(val, "iloc") else val[0]
+
   if pd.isna(val) or val is None:
     return ""
+
   s = str(val).strip()
   if s.lower() == "nan":
     return ""
@@ -1080,7 +1087,7 @@ elif st.session_state.active_tab == "add":
     else:
       st.error("أدخل رقم اللوحة على الأقل.")
 
-# ==================== 4. قسم الإدارة ====================
+# ==================== 4. قسم الإدارة وتحديث دليل الشقق ====================
 elif st.session_state.active_tab == "admin":
   st.subheader("🔒 إدارة المنظومة ودليل الشقق")
 
@@ -1123,6 +1130,7 @@ elif st.session_state.active_tab == "admin":
       try:
         dir_df = pd.read_excel(uploaded_dir)
 
+        # فحص إن كانت الترويسة في أول سطر
         first_row_vals = [
             str(v).lower().strip() for v in dir_df.iloc[0].values
         ]
@@ -1167,6 +1175,9 @@ elif st.session_state.active_tab == "admin":
             col_map[col] = "phone"
 
         dir_df = dir_df.rename(columns=col_map)
+
+        # إزالة أي أعمدة مكررة لتفادي خطأ Series
+        dir_df = dir_df.loc[:, ~dir_df.columns.duplicated()]
 
         if "apartment" in dir_df.columns and "building" in dir_df.columns:
           added_count = 0
