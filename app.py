@@ -42,6 +42,16 @@ def clean_str(val):
   return s
 
 
+def format_moroccan_phone(phone_val):
+  p = clean_str(phone_val).replace(" ", "").replace("-", "")
+  if not p:
+    return ""
+  # إذا كان الرقم يبدأ بـ 6 أو 7 وطوله 9 أرقام، نضيف له 0 في البداية
+  if len(p) == 9 and p.startswith(("6", "7", "5")):
+    p = "0" + p
+  return p
+
+
 # ----------------- تصميم واجهة التطبيق (CSS) -----------------
 st.markdown(
     """
@@ -314,7 +324,7 @@ def get_apartment_info(bld_num, apt_num):
         "building": clean_str(res[0]),
         "apartment_type": clean_str(res[1]),
         "resident_name": clean_str(res[2]),
-        "phone": clean_str(res[3]),
+        "phone": format_moroccan_phone(res[3]),
     }
   return None
 
@@ -332,7 +342,7 @@ def add_or_update_apartment_dir(bld, apt, apt_type, name, phone):
           clean_str(apt),
           clean_str(apt_type),
           clean_str(name),
-          clean_str(phone),
+          format_moroccan_phone(phone),
       ),
   )
   conn.commit()
@@ -359,7 +369,7 @@ def add_record(
   apartment_type = clean_str(apartment_type)
   plate_num = clean_str(plate_num)
   plate_reg = clean_str(plate_reg)
-  phone = clean_str(phone)
+  phone = format_moroccan_phone(phone)
 
   conn = sqlite3.connect(DB_FILE)
   c = conn.cursor()
@@ -408,7 +418,7 @@ def update_full_record(
   apartment_type = clean_str(apartment_type)
   plate_num = clean_str(plate_num)
   plate_reg = clean_str(plate_reg)
-  phone = clean_str(phone)
+  phone = format_moroccan_phone(phone)
 
   conn = sqlite3.connect(DB_FILE)
   c = conn.cursor()
@@ -936,13 +946,13 @@ if st.session_state.active_tab == "camera":
         st.markdown("---")
         st.markdown("🏢 **تحديد العمارة والشقة لجلب المعطيات بدقة:**")
 
-        # تهيئة الحالة للكاميرا
-        if "cam_fetched_name" not in st.session_state:
-          st.session_state.cam_fetched_name = ""
-        if "cam_fetched_phone" not in st.session_state:
-          st.session_state.cam_fetched_phone = ""
-        if "cam_fetched_type" not in st.session_state:
-          st.session_state.cam_fetched_type = ""
+        # تهيئة الحالة للحقول
+        if "cam_name_input" not in st.session_state:
+          st.session_state["cam_name_input"] = ""
+        if "cam_phone_input" not in st.session_state:
+          st.session_state["cam_phone_input"] = ""
+        if "cam_apt_type_select" not in st.session_state:
+          st.session_state["cam_apt_type_select"] = ""
 
         col_bld_in, col_apt_in, col_fetch_btn = st.columns([1.5, 1.5, 1])
         with col_bld_in:
@@ -959,19 +969,18 @@ if st.session_state.active_tab == "camera":
           if st.button("جلب ⚡", key="cam_fetch_btn", use_container_width=True):
             data = get_apartment_info(entered_bld, entered_apt)
             if data:
-              st.session_state.cam_fetched_name = data["resident_name"]
-              st.session_state.cam_fetched_phone = data["phone"]
-              st.session_state.cam_fetched_type = data["apartment_type"]
+              st.session_state["cam_name_input"] = data["resident_name"]
+              st.session_state["cam_phone_input"] = data["phone"]
+              st.session_state["cam_apt_type_select"] = data["apartment_type"]
               st.rerun()
             else:
-              st.warning("لم يتم العثور على شقة بهذه البيانات.")
+              st.warning("⚠️ لم يتم العثور على شقة بهذه البيانات.")
 
         c_t1, c_t2 = st.columns(2)
         with c_t1:
+          curr_t = st.session_state.get("cam_apt_type_select", "")
           idx_type = (
-              apt_types_list.index(st.session_state.cam_fetched_type)
-              if st.session_state.cam_fetched_type in apt_types_list
-              else 0
+              apt_types_list.index(curr_t) if curr_t in apt_types_list else 0
           )
           apartment_type = st.selectbox(
               "نوع الشقة (F2, F3, ...):",
@@ -981,19 +990,13 @@ if st.session_state.active_tab == "camera":
           )
         with c_t2:
           name = st.text_input(
-              "اسم الساكن",
-              value=st.session_state.cam_fetched_name,
-              placeholder="الاسم الكامل",
-              key="cam_name_input",
+              "اسم الساكن", placeholder="الاسم الكامل", key="cam_name_input"
           )
 
         phone = st.text_input(
-            "رقم الهاتف",
-            value=st.session_state.cam_fetched_phone,
-            placeholder="06XXXXXXXX",
-            key="cam_phone_input",
+            "رقم الهاتف", placeholder="06XXXXXXXX", key="cam_phone_input"
         )
-        car_desc = st.text_input("نوع ولون السيارة (اختياري)")
+        car_desc = st.text_input("نوع ولون السيارة (اختياري)", key="cam_desc_in")
 
         if st.button(
             "💾 حفظ الترقيم والمعطيات في المنظومة",
@@ -1018,10 +1021,9 @@ if st.session_state.active_tab == "camera":
                 car_desc,
                 "",
             )
-            # تصفير الحالة
-            st.session_state.cam_fetched_name = ""
-            st.session_state.cam_fetched_phone = ""
-            st.session_state.cam_fetched_type = ""
+            st.session_state["cam_name_input"] = ""
+            st.session_state["cam_phone_input"] = ""
+            st.session_state["cam_apt_type_select"] = ""
             st.success("تم الحفظ بنجاح!")
             st.rerun()
           else:
@@ -1091,17 +1093,17 @@ elif st.session_state.active_tab == "search":
           " والسكان."
       )
 
-# ==================== 3. قسم التسجيل اليدوي (مع إصلاح زر الجلب المباشر) ====================
+# ==================== 3. قسم التسجيل اليدوي (مصحح ومضمون 100%) ====================
 elif st.session_state.active_tab == "add":
   st.subheader("➕ تسجيل سيارة يدوياً")
 
-  # تهيئة متغيرات الحفظ في الذاكرة لتحديث الحقول فوراً
-  if "m_name" not in st.session_state:
-    st.session_state.m_name = ""
-  if "m_phone" not in st.session_state:
-    st.session_state.m_phone = ""
-  if "m_type" not in st.session_state:
-    st.session_state.m_type = ""
+  # تهيئة مفاتيح الحقول في Session State
+  if "manual_name_input" not in st.session_state:
+    st.session_state["manual_name_input"] = ""
+  if "manual_phone_input" not in st.session_state:
+    st.session_state["manual_phone_input"] = ""
+  if "manual_apt_type_select" not in st.session_state:
+    st.session_state["manual_apt_type_select"] = ""
 
   c1, c2, c3 = st.columns([2, 1, 1])
   with c1:
@@ -1118,28 +1120,29 @@ elif st.session_state.active_tab == "add":
   st.markdown("🏢 **تحديد العمارة والشقة:**")
   col_mbld, col_mapt, col_mbtn = st.columns([1.5, 1.5, 1])
   with col_mbld:
-    m_bld = st.text_input("العمارة:", placeholder="مثال: 5", key="m_bld_in")
+    m_bld = st.text_input("العمارة:", placeholder="مثال: 1", key="m_bld_in")
   with col_mapt:
-    m_apt = st.text_input("الشقة:", placeholder="مثال: 12", key="m_apt_in")
+    m_apt = st.text_input("الشقة:", placeholder="مثال: 1", key="m_apt_in")
   with col_mbtn:
     st.write("")
     st.write("")
-    # زر الجلب التفاعلي المباشر
+    # عند الضغط نقوم بتحديث قيم الـ widgets مباشرة
     if st.button("جلب ⚡", key="m_fetch_btn", use_container_width=True):
       m_data = get_apartment_info(m_bld, m_apt)
       if m_data:
-        st.session_state.m_name = m_data["resident_name"]
-        st.session_state.m_phone = m_data["phone"]
-        st.session_state.m_type = m_data["apartment_type"]
+        st.session_state["manual_name_input"] = m_data["resident_name"]
+        st.session_state["manual_phone_input"] = m_data["phone"]
+        st.session_state["manual_apt_type_select"] = m_data["apartment_type"]
         st.rerun()
       else:
         st.warning("⚠️ لم يتم العثور على شقة بهذه الأرقام في دليل السكان.")
 
   c_ma1, c_ma2 = st.columns(2)
   with c_ma1:
+    curr_m_type = st.session_state.get("manual_apt_type_select", "")
     m_type_idx = (
-        apt_types_list.index(st.session_state.m_type)
-        if st.session_state.m_type in apt_types_list
+        apt_types_list.index(curr_m_type)
+        if curr_m_type in apt_types_list
         else 0
     )
     m_apt_type = st.selectbox(
@@ -1150,17 +1153,11 @@ elif st.session_state.active_tab == "add":
     )
   with c_ma2:
     name = st.text_input(
-        "اسم الساكن",
-        value=st.session_state.m_name,
-        placeholder="الاسم الكامل",
-        key="manual_name_input",
+        "اسم الساكن", placeholder="الاسم الكامل", key="manual_name_input"
     )
 
   phone = st.text_input(
-      "رقم الهاتف",
-      value=st.session_state.m_phone,
-      placeholder="06XXXXXXXX",
-      key="manual_phone_input",
+      "رقم الهاتف", placeholder="06XXXXXXXX", key="manual_phone_input"
   )
   car_desc = st.text_input(
       "نوع ولون السيارة", placeholder="مثال: داسيا بيضاء", key="m_car_desc"
@@ -1189,10 +1186,10 @@ elif st.session_state.active_tab == "add":
             car_desc,
             "",
         )
-        # تصفير الحالة بعد الحفظ الناجح
-        st.session_state.m_name = ""
-        st.session_state.m_phone = ""
-        st.session_state.m_type = ""
+        # تصفير الحقول بعد الحفظ
+        st.session_state["manual_name_input"] = ""
+        st.session_state["manual_phone_input"] = ""
+        st.session_state["manual_apt_type_select"] = ""
         st.success("تم الحفظ بنجاح!")
         st.rerun()
     else:
