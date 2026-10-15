@@ -123,7 +123,6 @@ st.markdown(
         letter-spacing: 6px !important;
     }
 
-    /* إطار الكاميرا الطبيعي والواضح */
     [data-testid="stCameraInput"] {
         width: 100% !important;
         max-width: 100% !important;
@@ -132,7 +131,7 @@ st.markdown(
     [data-testid="stCameraInput"] video {
         width: 100% !important;
         height: auto !important;
-        min-height: 320px !important;
+        min-height: 340px !important;
         border-radius: 16px !important;
         border: 3px solid #2563eb !important;
         box-shadow: 0 10px 25px rgba(37, 99, 235, 0.2) !important;
@@ -394,17 +393,15 @@ def delete_record(record_id):
   conn.close()
 
 
-# ----------------- معالجة الصور الطبيعية والمثالية -----------------
+# ----------------- معالجة الصور وفك تشفير اللوحة بالترتيب المكاني -----------------
 def clean_image_for_ocr(image_np):
-  """تحويل الصورة الطبيعي مع المحافظة التامة على نقاء وتفاصيل الخط الأصلي"""
   gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
-  # تحسين بسيط للتباين دون إتلاف حواف الحروف
   enhanced = cv2.equalizeHist(gray)
   return enhanced
 
 
 def parse_moroccan_plate(ocr_results):
-  """تفكيك الأرقام والحروف بدقة وبدون خلط"""
+  """قراءة وتفكيك اللوحة المغربية بالاعتماد على الترتيب المكاني الهندسي (يمين = عمالة، وسط = حرف، يسار = رقم)"""
   arabic_targets = {
       "أ": ["أ", "ا", "إ", "آ"],
       "ب": ["ب"],
@@ -419,50 +416,68 @@ def parse_moroccan_plate(ocr_results):
       "WW": ["WW", "ww"],
   }
 
-  detected_texts = []
-  for item in ocr_results:
-    text = item[1].strip()
-    if text:
-      detected_texts.append(text)
+  if not ocr_results:
+    return "", "", "", ""
 
-  combined_text = " ".join(detected_texts)
+  # استخراج المربعات مع مركزها الأفقي X (لترتيب العناصر من اليمين إلى اليسار)
+  boxes = []
+  for bbox, text, prob in ocr_results:
+    t = text.strip()
+    if t:
+      x_center = (bbox[0][0] + bbox[1][0] + bbox[2][0] + bbox[3][0]) / 4.0
+      boxes.append((x_center, t))
 
-  # 1. التقاط الحرف العربي
+  # ترتيب العناصر من اليمين إلى اليسار تنازلياً (أعلى X في أقصى اليمين)
+  boxes.sort(key=lambda item: item[0], reverse=True)
+
+  # 1. البحث عن الحرف العربي في النصوص بعد تجريد الرموز الفاصلة
   detected_letter = ""
-  for main_let, aliases in arabic_targets.items():
-    for alias in aliases:
-      if alias in combined_text:
-        detected_letter = main_let
+  for x_pos, txt in boxes:
+    clean_txt = re.sub(r"[\s\|\/\\\[\]\(\)\-1I!l]", "", txt)
+    for main_let, aliases in arabic_targets.items():
+      for alias in aliases:
+        if alias in clean_txt or alias in txt:
+          detected_letter = main_let
+          break
+      if detected_letter:
         break
     if detected_letter:
       break
 
-  # تصحيح خاص لخلط الحرف د بالرقم 5
+  # إذا تعذر، البحث عن حرف 'د' المقروء كـ 5 أو 0
   if not detected_letter:
-    for item in detected_texts:
-      if item == "5" or (len(item) == 1 and item in ["5", "o", "O"]):
+    for x_pos, txt in boxes:
+      clean_t = txt.strip()
+      if clean_t in ["5", "0", "o", "O"]:
         detected_letter = "د"
         break
 
-  # 2. استخراج الأرقام
-  all_numbers = re.findall(r"\d+", combined_text)
-  if detected_letter == "د" and "5" in all_numbers and len(all_numbers) >= 2:
-    all_numbers.remove("5")
+  # 2. استخراج الأرقام من العناصر مع الحفاظ على مواقعها الأفقية
+  num_boxes = []
+  for x_pos, txt in boxes:
+    nums = re.findall(r"\d+", txt)
+    for n in nums:
+      num_boxes.append((x_pos, n))
 
   main_num = ""
   region_num = ""
 
-  if all_numbers:
-    main_num = clean_str(max(all_numbers, key=len))
-    remaining_nums = [n for n in all_numbers if n != main_num]
+  if num_boxes:
+    # الرقم ذو الطول الأكبر هو رقم اللوحة الرئيسي (أقصى اليسار)
+    all_num_strs = [nb[1] for nb in num_boxes]
+    main_num = clean_str(max(all_num_strs, key=len))
 
-    if remaining_nums:
-      for rn in remaining_nums:
-        if len(rn) <= 2:
-          region_num = clean_str(rn)
+    # العمالة هي الرقم في أقصى اليمين (أعلى X) ولا يتجاوز خانتين
+    remaining = [nb for nb in num_boxes if nb[1] != main_num]
+    if remaining:
+      remaining.sort(key=lambda item: item[0], reverse=True)
+      for x_p, r_str in remaining:
+        clean_r = clean_str(r_str)
+        if len(clean_r) <= 2:
+          region_num = clean_r
           break
       if not region_num:
-        region_num = clean_str(remaining_nums[0])
+        region_num = clean_str(remaining[0][1])
 
   full_display = f"{main_num} | {detected_letter if detected_letter else '-'} | {region_num if region_num else '-'}"
   return main_num, detected_letter, region_num, full_display
@@ -675,7 +690,7 @@ with nav_c4:
 
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
-# ==================== 1. قسم الكاميرا فائق الدقة ====================
+# ==================== 1. قسم الكاميرا ====================
 if st.session_state.active_tab == "camera":
   st.subheader("📷 التقاط لوحة السيارة")
   st.caption("وجه الكاميرا بوضوح بحيث تملأ اللوحة معظم الشاشة:")
@@ -687,12 +702,11 @@ if st.session_state.active_tab == "camera":
     image = Image.open(io.BytesIO(camera_file.getvalue()))
     image_np = np.array(image)
 
-    with st.spinner("⚡ جاري قراءة الترقيم بأعلى دقة..."):
+    with st.spinner("⚡ جاري قراءة الترقيم بدقة عالية..."):
       processed_np = clean_image_for_ocr(image_np)
-      # قراءة مباشرة بصورة نظيفة وغير مشوهة
       results = reader.readtext(
           processed_np,
-          allowlist="0123456789أبدهوجحيخزرWW -|",
+          allowlist="0123456789أبدهوجحيخزرWW -|[]()/",
           detail=1,
           paragraph=False,
       )
