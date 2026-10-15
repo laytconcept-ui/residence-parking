@@ -26,7 +26,6 @@ apt_types_list = ["", "F2", "F3", "F4", "F5", "أخرى"]
 
 
 def clean_str(val):
-  """تحويل نظيف وآمن للقيم مع الحماية التامة من خطأ Pandas Series"""
   if isinstance(val, (pd.Series, np.ndarray, list)):
     if len(val) == 0:
       return ""
@@ -261,6 +260,31 @@ def get_all_records():
   return df
 
 
+def search_apartments_directory(query):
+  """البحث الشامل داخل جدول دليل شقق وسكان fm6"""
+  q = clean_str(query)
+  if not q:
+    return pd.DataFrame()
+  conn = sqlite3.connect(DB_FILE)
+  df_dir = pd.read_sql_query(
+      """
+        SELECT building, apartment, apartment_type, resident_name, phone 
+        FROM apartments_directory
+        WHERE resident_name LIKE ? 
+           OR phone LIKE ? 
+           OR building LIKE ? 
+           OR apartment LIKE ?
+        ORDER BY CAST(building AS INTEGER), CAST(apartment AS INTEGER)
+    """,
+      conn,
+      params=(f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"),
+  )
+  conn.close()
+  for col in df_dir.columns:
+    df_dir[col] = df_dir[col].apply(clean_str)
+  return df_dir
+
+
 def get_apartment_info(bld_num, apt_num):
   b_clean = clean_str(bld_num)
   a_clean = clean_str(apt_num)
@@ -425,7 +449,7 @@ def delete_record(record_id):
   conn.close()
 
 
-# ----------------- الكشف التلقائي عن مستطيل اللوحة -----------------
+# ----------------- معالجة الصور وفك التشفير -----------------
 def detect_and_crop_license_plate(image_np):
   try:
     h, w = image_np.shape[:2]
@@ -740,6 +764,48 @@ def render_car_card(row, allow_edit=True):
           st.rerun()
 
 
+# ----------------- بطاقة عرض الساكن من دليل الشقق (fm6) -----------------
+def render_directory_card(row):
+  bld = clean_str(row.get("building", ""))
+  apt = clean_str(row.get("apartment", ""))
+  apt_type = clean_str(row.get("apartment_type", ""))
+  name = clean_str(row.get("resident_name", ""))
+  phone = clean_str(row.get("phone", ""))
+
+  with st.container(border=True):
+    st.markdown(
+        """
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="background: #e0f2fe; color: #0369a1; padding: 4px 12px; border-radius: 20px; font-weight: 800; font-size: 13px;">
+                📋 مسجل في دليل الشقق (fm6)
+            </span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    c1, c2 = st.columns(2)
+    with c1:
+      apt_text = f"{apt} ({apt_type})" if apt_type else apt
+      st.markdown(
+          f"🏢 **العمارة:** `{bld}` &nbsp;&nbsp;|&nbsp;&nbsp; 🚪 **الشقة:**"
+          f" `{apt_text}`"
+      )
+      st.markdown(f"👤 **الساكن:** **{name if name else 'غير مسجل'}**")
+    with c2:
+      st.markdown(f"📞 **الهاتف:** `{phone if phone else 'غير متوفر'}`")
+
+    if phone and phone.lower() != "nan":
+      b1, b2 = st.columns(2)
+      with b1:
+        st.link_button(
+            "📞 اتصال هاتفي", f"tel:{phone}", use_container_width=True
+        )
+      with b2:
+        wa_phone = phone[1:] if phone.startswith("0") else phone
+        wa_link = f"https://wa.me/212{wa_phone}"
+        st.link_button("💬 محادثة واتساب", wa_link, use_container_width=True)
+
+
 # ----------------- شريط الملاحة والتنقل -----------------
 if "active_tab" not in st.session_state:
   st.session_state.active_tab = "camera"
@@ -962,15 +1028,19 @@ if st.session_state.active_tab == "camera":
           "تعذر قراءة أرقام واضحة، حاول التقاط صورة أقرب قليلاً للوحة."
       )
 
-# ==================== 2. قسم الاستعلام ====================
+# ==================== 2. قسم الاستعلام الشامل في الجدولين ====================
 elif st.session_state.active_tab == "search":
-  st.subheader("🔍 استعلام وبحث فوري")
+  st.subheader("🔍 استعلام وبحث فوري شامل")
+  st.caption(
+      "البحث التلقائي يشمل كلاً من: جدول السيارات المسجلة حديثاً + جدول دليل"
+      " الشقق وسكانها (fm6):"
+  )
 
   with st.form("search_form"):
     col_in, col_bt = st.columns([3, 1])
     with col_in:
       query = st.text_input(
-          "🔎 أدخل رقم اللوحة أو الساكن أو العمارة أو نوع الشقة:",
+          "🔎 اكتب رقم اللوحة، اسم الساكن، رقم العمارة، الشقة، أو الهاتف:",
           value="",
           placeholder="",
           label_visibility="collapsed",
@@ -981,25 +1051,44 @@ elif st.session_state.active_tab == "search":
       )
 
   if query:
-    df = get_all_records()
-    if not df.empty:
-      mask = (
-          df["plate_number"].astype(str).str.contains(query)
-          | df["building"].astype(str).str.contains(query)
-          | df["apartment"].astype(str).str.contains(query)
-          | df["apartment_type"].astype(str).str.contains(query, case=False)
-          | df["car_type"].astype(str).str.contains(query, case=False)
-          | df["resident_name"].astype(str).str.contains(query, case=False)
+    # 1. البحث في جدول السيارات المسجلة
+    df_cars = get_all_records()
+    cars_found = False
+
+    if not df_cars.empty:
+      mask_car = (
+          df_cars["plate_number"].astype(str).str.contains(query)
+          | df_cars["building"].astype(str).str.contains(query)
+          | df_cars["apartment"].astype(str).str.contains(query)
+          | df_cars["apartment_type"].astype(str).str.contains(query, case=False)
+          | df_cars["car_type"].astype(str).str.contains(query, case=False)
+          | df_cars["phone"].astype(str).str.contains(query)
+          | df_cars["resident_name"].astype(str).str.contains(query, case=False)
       )
-      res = df[mask]
-      if not res.empty:
-        st.write(f"تم العثور على ({len(res)}) سيارة:")
-        for _, r in res.iterrows():
+      res_cars = df_cars[mask_car]
+      if not res_cars.empty:
+        cars_found = True
+        st.markdown(
+            f"### 🚗 نتائج موقف السيارات المسجلة ({len(res_cars)} سيارة)"
+        )
+        for _, r in res_cars.iterrows():
           render_car_card(r, allow_edit=True)
-      else:
-        st.info("لا توجد سيارة مطابقة لبيانات البحث.")
-    else:
-      st.info("لا توجد سيارات مسجلة في النظام بعد.")
+
+    # 2. البحث التلقائي في دليل الشقق والسكان (fm6)
+    res_dir = search_apartments_directory(query)
+    dir_found = False
+
+    if not res_dir.empty:
+      dir_found = True
+      st.markdown(f"### 🏢 نتائج دليل الشقق والسكان (fm6) ({len(res_dir)} ساكن)")
+      for _, r_dir in res_dir.iterrows():
+        render_directory_card(r_dir)
+
+    if not cars_found and not dir_found:
+      st.info(
+          "لم يتم العثور على أي تطابق في موقف السيارات ولا في دليل الشقق"
+          " والسكان."
+      )
 
 # ==================== 3. قسم التسجيل اليدوي ====================
 elif st.session_state.active_tab == "add":
@@ -1130,7 +1219,6 @@ elif st.session_state.active_tab == "admin":
       try:
         dir_df = pd.read_excel(uploaded_dir)
 
-        # فحص إن كانت الترويسة في أول سطر
         first_row_vals = [
             str(v).lower().strip() for v in dir_df.iloc[0].values
         ]
@@ -1175,8 +1263,6 @@ elif st.session_state.active_tab == "admin":
             col_map[col] = "phone"
 
         dir_df = dir_df.rename(columns=col_map)
-
-        # إزالة أي أعمدة مكررة لتفادي خطأ Series
         dir_df = dir_df.loc[:, ~dir_df.columns.duplicated()]
 
         if "apartment" in dir_df.columns and "building" in dir_df.columns:
