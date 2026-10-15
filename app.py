@@ -21,6 +21,8 @@ ADMIN_PIN = "1234"
 DB_FILE = "residence_parking.db"
 
 letters_list = ["", "أ", "ب", "د", "هـ", "و", "ج", "ح", "ي", "ز", "ر", "WW"]
+status_options = ["مالك", "مكتري", "زائر"]
+apt_types_list = ["", "F2", "F3", "F4", "F5", "أخرى"]
 
 
 def clean_str(val):
@@ -181,13 +183,14 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             building TEXT,
             apartment TEXT,
+            apartment_type TEXT,
             resident_name TEXT,
             phone TEXT,
             plate_number TEXT NOT NULL,
             plate_letter TEXT,
             plate_region TEXT,
             full_plate TEXT,
-            car_type TEXT DEFAULT 'مقيم',
+            car_type TEXT DEFAULT 'مالك',
             car_info TEXT,
             created_at TEXT,
             notes TEXT
@@ -198,6 +201,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS apartments_directory (
             building TEXT,
             apartment TEXT,
+            apartment_type TEXT,
             resident_name TEXT,
             phone TEXT,
             PRIMARY KEY (building, apartment)
@@ -205,8 +209,9 @@ def init_db():
     """)
 
   cols = [
+      ("apartment_type", "TEXT"),
       ("full_plate", "TEXT"),
-      ("car_type", "TEXT DEFAULT 'مقيم'"),
+      ("car_type", "TEXT DEFAULT 'مالك'"),
       ("created_at", "TEXT"),
       ("notes", "TEXT"),
   ]
@@ -215,6 +220,12 @@ def init_db():
       c.execute(f"ALTER TABLE residents_cars ADD COLUMN {col_name} {col_type}")
     except sqlite3.OperationalError:
       pass
+
+  try:
+    c.execute("ALTER TABLE apartments_directory ADD COLUMN apartment_type TEXT")
+  except sqlite3.OperationalError:
+    pass
+
   conn.commit()
   conn.close()
 
@@ -230,6 +241,7 @@ def get_all_records():
   for col in [
       "building",
       "apartment",
+      "apartment_type",
       "plate_number",
       "plate_region",
       "resident_name",
@@ -253,15 +265,15 @@ def get_apartment_info(bld_num, apt_num):
 
   if b_clean:
     c.execute(
-        "SELECT building, resident_name, phone FROM apartments_directory WHERE"
-        " building = ? AND apartment = ?",
+        "SELECT building, apartment_type, resident_name, phone FROM"
+        " apartments_directory WHERE building = ? AND apartment = ?",
         (b_clean, a_clean),
     )
     res = c.fetchone()
   else:
     c.execute(
-        "SELECT building, resident_name, phone FROM apartments_directory WHERE"
-        " apartment = ?",
+        "SELECT building, apartment_type, resident_name, phone FROM"
+        " apartments_directory WHERE apartment = ?",
         (a_clean,),
     )
     res = c.fetchone()
@@ -270,21 +282,28 @@ def get_apartment_info(bld_num, apt_num):
   if res:
     return {
         "building": clean_str(res[0]),
-        "resident_name": clean_str(res[1]),
-        "phone": clean_str(res[2]),
+        "apartment_type": clean_str(res[1]),
+        "resident_name": clean_str(res[2]),
+        "phone": clean_str(res[3]),
     }
   return None
 
 
-def add_or_update_apartment_dir(bld, apt, name, phone):
+def add_or_update_apartment_dir(bld, apt, apt_type, name, phone):
   conn = sqlite3.connect(DB_FILE)
   c = conn.cursor()
   c.execute(
       """
-        INSERT OR REPLACE INTO apartments_directory (building, apartment, resident_name, phone)
-        VALUES (?, ?, ?, ?)
+        INSERT OR REPLACE INTO apartments_directory (building, apartment, apartment_type, resident_name, phone)
+        VALUES (?, ?, ?, ?, ?)
     """,
-      (clean_str(bld), clean_str(apt), clean_str(name), clean_str(phone)),
+      (
+          clean_str(bld),
+          clean_str(apt),
+          clean_str(apt_type),
+          clean_str(name),
+          clean_str(phone),
+      ),
   )
   conn.commit()
   conn.close()
@@ -293,6 +312,7 @@ def add_or_update_apartment_dir(bld, apt, name, phone):
 def add_record(
     building,
     apartment,
+    apartment_type,
     name,
     phone,
     plate_num,
@@ -306,6 +326,7 @@ def add_record(
   now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
   building = clean_str(building)
   apartment = clean_str(apartment)
+  apartment_type = clean_str(apartment_type)
   plate_num = clean_str(plate_num)
   plate_reg = clean_str(plate_reg)
   phone = clean_str(phone)
@@ -314,12 +335,13 @@ def add_record(
   c = conn.cursor()
   c.execute(
       """
-        INSERT INTO residents_cars (building, apartment, resident_name, phone, plate_number, plate_letter, plate_region, full_plate, car_type, car_info, created_at, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO residents_cars (building, apartment, apartment_type, resident_name, phone, plate_number, plate_letter, plate_region, full_plate, car_type, car_info, created_at, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """,
       (
           building,
           apartment,
+          apartment_type,
           name,
           phone,
           plate_num,
@@ -340,6 +362,7 @@ def update_full_record(
     record_id,
     building,
     apartment,
+    apartment_type,
     name,
     phone,
     plate_num,
@@ -352,6 +375,7 @@ def update_full_record(
 ):
   building = clean_str(building)
   apartment = clean_str(apartment)
+  apartment_type = clean_str(apartment_type)
   plate_num = clean_str(plate_num)
   plate_reg = clean_str(plate_reg)
   phone = clean_str(phone)
@@ -361,7 +385,7 @@ def update_full_record(
   c.execute(
       """
         UPDATE residents_cars
-        SET building = ?, apartment = ?, resident_name = ?, phone = ?, 
+        SET building = ?, apartment = ?, apartment_type = ?, resident_name = ?, phone = ?, 
             plate_number = ?, plate_letter = ?, plate_region = ?, full_plate = ?,
             car_type = ?, car_info = ?, notes = ?
         WHERE id = ?
@@ -369,6 +393,7 @@ def update_full_record(
       (
           building,
           apartment,
+          apartment_type,
           name,
           phone,
           plate_num,
@@ -393,18 +418,14 @@ def delete_record(record_id):
   conn.close()
 
 
-# ----------------- الكشف التلقائي عن مستطيل اللوحة وقصها (Auto-Crop) -----------------
+# ----------------- الكشف التلقائي عن مستطيل اللوحة -----------------
 def detect_and_crop_license_plate(image_np):
-  """البحث عن المستطيل الأبيض للوحة السيارة المغربية وقصها بدقة لرفع جودة OCR"""
   try:
     h, w = image_np.shape[:2]
     gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
-
-    # تحسين التباين وتطبيق فلتر الكشف عن الحواف
     blur = cv2.bilateralFilter(gray, 11, 17, 17)
     edged = cv2.Canny(blur, 30, 200)
 
-    # البحث عن الكنتورات (الحدود الهندسية)
     contours, _ = cv2.findContours(
         edged.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
     )
@@ -415,19 +436,16 @@ def detect_and_crop_license_plate(image_np):
       peri = cv2.arcLength(c, True)
       approx = cv2.approxPolyDP(c, 0.02 * peri, True)
 
-      # إذا كان الشكل رباعي الأضلاع
       if len(approx) == 4:
         x, y, cw, ch = cv2.boundingRect(approx)
         aspect_ratio = float(cw) / ch
 
-        # أبعاد اللوحات المغربية تتراوح نسبتها عادة بين 2.5 إلى 5.5 ومساحتها معقولة
         if (
             2.3 < aspect_ratio < 6.0
             and cw > (w * 0.18)
             and ch > (h * 0.04)
             and (cw * ch) > 2500
         ):
-          # إضافة هامش بسيط (Margin) حول اللوحة
           pad_x = int(cw * 0.04)
           pad_y = int(ch * 0.08)
           y1 = max(0, y - pad_y)
@@ -439,7 +457,6 @@ def detect_and_crop_license_plate(image_np):
           break
 
     if plate_crop is not None:
-      # تكبير اللوحة المقصوصة لحجم ممتاز لقراءة الحروف
       plate_resized = cv2.resize(
           plate_crop, (600, 140), interpolation=cv2.INTER_CUBIC
       )
@@ -447,12 +464,10 @@ def detect_and_crop_license_plate(image_np):
   except Exception:
     pass
 
-  # إذا تعذر الكشف الدقيق، نستخدم الصورة الأصلية
   return image_np, False
 
 
 def clean_image_for_ocr(image_np):
-  """تحويل الصورة الرمادي المصفى"""
   if len(image_np.shape) == 3:
     gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
   else:
@@ -462,7 +477,6 @@ def clean_image_for_ocr(image_np):
 
 
 def parse_moroccan_plate(ocr_results):
-  """تفكيك اللوحة حسب الترتيب المكاني: اليمين = عمالة، الوسط = حرف، اليسار = أرقام"""
   arabic_targets = {
       "أ": ["أ", "ا", "إ", "آ"],
       "ب": ["ب"],
@@ -487,10 +501,8 @@ def parse_moroccan_plate(ocr_results):
       x_center = (bbox[0][0] + bbox[1][0] + bbox[2][0] + bbox[3][0]) / 4.0
       boxes.append((x_center, t))
 
-  # ترتيب العناصر أفقياً من اليمين إلى اليسار
   boxes.sort(key=lambda item: item[0], reverse=True)
 
-  # 1. البحث عن الحرف العربي
   detected_letter = ""
   for x_pos, txt in boxes:
     clean_txt = re.sub(r"[\s\|\/\\\[\]\(\)\-1I!l]", "", txt)
@@ -511,7 +523,6 @@ def parse_moroccan_plate(ocr_results):
         detected_letter = "د"
         break
 
-  # 2. استخراج الأرقام من العناصر
   num_boxes = []
   for x_pos, txt in boxes:
     nums = re.findall(r"\d+", txt)
@@ -525,7 +536,6 @@ def parse_moroccan_plate(ocr_results):
     all_num_strs = [nb[1] for nb in num_boxes]
     main_num = clean_str(max(all_num_strs, key=len))
 
-    # العمالة هي الرقم في أقصى اليمين ولا يتجاوز خانتين
     remaining = [nb for nb in num_boxes if nb[1] != main_num]
     if remaining:
       remaining.sort(key=lambda item: item[0], reverse=True)
@@ -552,13 +562,20 @@ def render_car_card(row, allow_edit=True):
   p_reg = clean_str(row.get("plate_region", ""))
   bld = clean_str(row.get("building", ""))
   apt = clean_str(row.get("apartment", ""))
-  c_type = (
-      row["car_type"]
-      if "car_type" in row and pd.notna(row["car_type"])
-      else "مقيم"
-  )
+  apt_type = clean_str(row.get("apartment_type", ""))
+  c_type = clean_str(row.get("car_type", "مالك"))
   clean_phone = clean_str(row.get("phone", ""))
   rec_id = int(row["id"])
+
+  badge_color = "#15803d" if c_type == "مالك" else (
+      "#1d4ed8" if c_type == "مكتري" else "#b45309"
+  )
+  badge_bg = "#dcfce7" if c_type == "مالك" else (
+      "#dbeafe" if c_type == "مكتري" else "#fef3c7"
+  )
+  badge_icon = "🏠" if c_type == "مالك" else (
+      "🔑" if c_type == "مكتري" else "⏱️"
+  )
 
   with st.container(border=True):
     st.markdown(
@@ -571,8 +588,8 @@ def render_car_card(row, allow_edit=True):
                 <span class="plate-divider"></span>
                 <span class="plate-item">{p_reg}</span>
             </div>
-            <span style="background: {'#dcfce7' if c_type=='مقيم' else '#fef3c7'}; color: {'#15803d' if c_type=='مقيم' else '#b45309'}; padding: 4px 12px; border-radius: 20px; font-weight: 800; font-size: 12px;">
-                {'✅ مقيم' if c_type=='مقيم' else '⏱️ زائر'}
+            <span style="background: {badge_bg}; color: {badge_color}; padding: 4px 12px; border-radius: 20px; font-weight: 800; font-size: 13px;">
+                {badge_icon} {c_type}
             </span>
         </div>
         """,
@@ -581,9 +598,14 @@ def render_car_card(row, allow_edit=True):
 
     c_i1, c_i2 = st.columns(2)
     with c_i1:
+      apt_disp = (
+          f"{apt} ({apt_type})"
+          if apt_type
+          else (apt if apt else "—")
+      )
       st.markdown(
           f"🏢 **العمارة:** `{bld if bld else '—'}` &nbsp;&nbsp;|&nbsp;&nbsp; 🚪"
-          f" **الشقة:** `{apt if apt else '—'}`"
+          f" **الشقة:** `{apt_disp}`"
       )
       st.markdown(
           "👤 **الساكن:**"
@@ -615,20 +637,35 @@ def render_car_card(row, allow_edit=True):
 
     if allow_edit:
       with st.expander("✏️ تعديل أو إكمال معطيات هذه السيارة"):
-        col_e1, col_e2 = st.columns(2)
+        col_e1, col_e2, col_e3 = st.columns(3)
         with col_e1:
           e_bld = st.text_input(
               "العمارة",
               value=clean_str(row["building"]),
               key=f"card_bld_{rec_id}",
           )
+        with col_e2:
           e_apt = st.text_input(
               "الشقة",
               value=clean_str(row["apartment"]),
               key=f"card_apt_{rec_id}",
           )
+        with col_e3:
+          curr_apt_type = clean_str(row.get("apartment_type", ""))
+          type_idx = (
+              apt_types_list.index(curr_apt_type)
+              if curr_apt_type in apt_types_list
+              else 0
+          )
+          e_apt_type = st.selectbox(
+              "نوع الشقة",
+              apt_types_list,
+              index=type_idx,
+              key=f"card_apttype_{rec_id}",
+          )
 
-        with col_e2:
+        col_n1, col_n2 = st.columns(2)
+        with col_n1:
           e_name = st.text_input(
               "اسم الساكن",
               value=(
@@ -638,32 +675,33 @@ def render_car_card(row, allow_edit=True):
               ),
               key=f"card_name_{rec_id}",
           )
+        with col_n2:
           e_phone = st.text_input(
               "رقم الهاتف",
               value=clean_str(row["phone"]),
               key=f"card_phone_{rec_id}",
           )
 
-        col_e3, col_e4 = st.columns(2)
-        with col_e3:
+        col_e4, col_e5 = st.columns(2)
+        with col_e4:
           e_car = st.text_input(
               "نوع ولون السيارة",
               value=str(row["car_info"]) if pd.notna(row["car_info"]) else "",
               key=f"card_car_{rec_id}",
           )
-        with col_e4:
-          curr_type = (
-              str(row["car_type"])
-              if "car_type" in row and pd.notna(row["car_type"])
-              else "مقيم"
+        with col_e5:
+          curr_status = clean_str(row.get("car_type", "مالك"))
+          s_idx = (
+              status_options.index(curr_status)
+              if curr_status in status_options
+              else 0
           )
-          type_idx = 0 if curr_type == "مقيم" else 1
-          e_type = st.radio(
+          e_status = st.radio(
               "الصفة",
-              ["مقيم", "زائر مؤقت"],
-              index=type_idx,
+              status_options,
+              index=s_idx,
               horizontal=True,
-              key=f"card_type_{rec_id}",
+              key=f"card_status_{rec_id}",
           )
 
         e_notes = st.text_input(
@@ -680,13 +718,14 @@ def render_car_card(row, allow_edit=True):
               rec_id,
               e_bld,
               e_apt,
+              e_apt_type,
               e_name,
               e_phone,
               clean_str(row["plate_number"]),
               str(row["plate_letter"]),
               clean_str(row["plate_region"]),
               p_full_str,
-              e_type,
+              e_status,
               e_car,
               e_notes,
           )
@@ -748,7 +787,7 @@ with nav_c4:
 
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
-# ==================== 1. قسم الكاميرا مع القص التلقائي ====================
+# ==================== 1. قسم الكاميرا ====================
 if st.session_state.active_tab == "camera":
   st.subheader("📷 التقاط لوحة السيارة")
   st.caption("وجه الكاميرا نحو اللوحة والتقط الصورة:")
@@ -761,13 +800,8 @@ if st.session_state.active_tab == "camera":
     image_np = np.array(image)
 
     with st.spinner("⚡ جاري استشعار اللوحة وقراءة الترقيم بدقة..."):
-      # 1. كشف وقص مستطيل اللوحة آلياً
       cropped_plate, was_cropped = detect_and_crop_license_plate(image_np)
-
-      # 2. تنظيف الصورة المقصوصة
       processed_np = clean_image_for_ocr(cropped_plate)
-
-      # 3. قراءة الترقيم
       results = reader.readtext(
           processed_np,
           allowlist="0123456789أبدهوجحيخزرWW -|[]()/",
@@ -775,7 +809,6 @@ if st.session_state.active_tab == "camera":
           paragraph=False,
       )
 
-      # إذا كانت النتيجة فارغة، نجرب قراءة الصورة الأصلية كبديل
       if not results and was_cropped:
         processed_orig = clean_image_for_ocr(image_np)
         results = reader.readtext(
@@ -822,7 +855,10 @@ if st.session_state.active_tab == "camera":
           )
 
         car_type = st.radio(
-            "الصفة:", ["مقيم", "زائر مؤقت"], horizontal=True, key="cam_type"
+            "صفة الساكن/السيارة:",
+            status_options,
+            horizontal=True,
+            key="cam_status_radio",
         )
 
         st.markdown("---")
@@ -855,20 +891,36 @@ if st.session_state.active_tab == "camera":
               f" (عمارة {apt_data['building']} - شقة {entered_apt})"
           )
 
-        c_name, c_phone = st.columns(2)
-        with c_name:
+        c_t1, c_t2 = st.columns(2)
+        with c_t1:
+          apt_type_val = (
+              apt_data["apartment_type"]
+              if (apt_data and apt_data.get("apartment_type"))
+              else ""
+          )
+          idx_type = (
+              apt_types_list.index(apt_type_val)
+              if apt_type_val in apt_types_list
+              else 0
+          )
+          apartment_type = st.selectbox(
+              "نوع الشقة (F2, F3, ...):",
+              apt_types_list,
+              index=idx_type,
+              key="cam_apt_type_select",
+          )
+        with c_t2:
           name = st.text_input(
               "اسم الساكن",
               value=apt_data["resident_name"] if apt_data else "",
               placeholder="الاسم الكامل",
           )
-        with c_phone:
-          phone = st.text_input(
-              "رقم الهاتف",
-              value=apt_data["phone"] if apt_data else "",
-              placeholder="06XXXXXXXX",
-          )
 
+        phone = st.text_input(
+            "رقم الهاتف",
+            value=apt_data["phone"] if apt_data else "",
+            placeholder="06XXXXXXXX",
+        )
         car_desc = st.text_input("نوع ولون السيارة (اختياري)")
 
         if st.button(
@@ -883,6 +935,7 @@ if st.session_state.active_tab == "camera":
             add_record(
                 entered_bld,
                 entered_apt,
+                apartment_type,
                 name,
                 phone,
                 p_num,
@@ -910,7 +963,7 @@ elif st.session_state.active_tab == "search":
     col_in, col_bt = st.columns([3, 1])
     with col_in:
       query = st.text_input(
-          "🔎 أدخل رقم اللوحة أو الساكن:",
+          "🔎 أدخل رقم اللوحة أو الساكن أو العمارة أو نوع الشقة:",
           value="",
           placeholder="",
           label_visibility="collapsed",
@@ -927,6 +980,8 @@ elif st.session_state.active_tab == "search":
           df["plate_number"].astype(str).str.contains(query)
           | df["building"].astype(str).str.contains(query)
           | df["apartment"].astype(str).str.contains(query)
+          | df["apartment_type"].astype(str).str.contains(query, case=False)
+          | df["car_type"].astype(str).str.contains(query, case=False)
           | df["resident_name"].astype(str).str.contains(query, case=False)
       )
       res = df[mask]
@@ -951,7 +1006,7 @@ elif st.session_state.active_tab == "add":
   with c3:
     p_reg = st.text_input("العمالة", placeholder="26")
 
-  car_type = st.radio("الصفة:", ["مقيم", "زائر مؤقت"], horizontal=True)
+  car_type = st.radio("صفة الساكن:", status_options, horizontal=True)
 
   st.markdown("🏢 **تحديد العمارة والشقة:**")
   col_mbld, col_mapt, col_mbtn = st.columns([1.5, 1.5, 1])
@@ -968,20 +1023,33 @@ elif st.session_state.active_tab == "add":
       get_apartment_info(m_bld, m_apt) if (m_bld or m_apt) else None
   )
 
-  c_a, c_b = st.columns(2)
-  with c_a:
+  c_ma1, c_ma2 = st.columns(2)
+  with c_ma1:
+    m_apt_type_val = (
+        m_data["apartment_type"]
+        if (m_data and m_data.get("apartment_type"))
+        else ""
+    )
+    m_type_idx = (
+        apt_types_list.index(m_apt_type_val)
+        if m_apt_type_val in apt_types_list
+        else 0
+    )
+    m_apt_type = st.selectbox(
+        "نوع الشقة:", apt_types_list, index=m_type_idx, key="manual_apt_type"
+    )
+  with c_ma2:
     name = st.text_input(
         "اسم الساكن",
         value=m_data["resident_name"] if m_data else "",
         key="m_name_input",
     )
-  with c_b:
-    phone = st.text_input(
-        "رقم الهاتف",
-        value=m_data["phone"] if m_data else "",
-        key="m_phone_input",
-    )
 
+  phone = st.text_input(
+      "رقم الهاتف",
+      value=m_data["phone"] if m_data else "",
+      key="m_phone_input",
+  )
   car_desc = st.text_input("نوع ولون السيارة")
 
   if st.button("💾 حفظ في المنظومة", type="primary", use_container_width=True):
@@ -996,6 +1064,7 @@ elif st.session_state.active_tab == "add":
         add_record(
             m_bld,
             m_apt,
+            m_apt_type,
             name,
             phone,
             p_num,
@@ -1075,6 +1144,20 @@ elif st.session_state.active_tab == "admin":
             col_map[col] = "building"
           elif any(
               k in c_lower
+              for k in [
+                  "type",
+                  "نوع",
+                  "صنف",
+                  "f2",
+                  "f3",
+                  "f4",
+                  "typologie",
+                  "modèle",
+              ]
+          ):
+            col_map[col] = "apartment_type"
+          elif any(
+              k in c_lower
               for k in ["name", "resident", "nom", "اسم", "قاطن", "ساكن"]
           ):
             col_map[col] = "resident_name"
@@ -1090,10 +1173,11 @@ elif st.session_state.active_tab == "admin":
           for _, row in dir_df.iterrows():
             apt = clean_str(row.get("apartment", ""))
             bld = clean_str(row.get("building", ""))
+            apt_type = clean_str(row.get("apartment_type", ""))
             name = clean_str(row.get("resident_name", ""))
             phone = clean_str(row.get("phone", ""))
             if apt and bld:
-              add_or_update_apartment_dir(bld, apt, name, phone)
+              add_or_update_apartment_dir(bld, apt, apt_type, name, phone)
               added_count += 1
           st.success(
               f"🎉 تم تسجيل وتحديث ({added_count}) شقة وسكانها موزعة على"
@@ -1121,6 +1205,7 @@ elif st.session_state.active_tab == "admin":
       missing_count = df["apartment"].replace("", np.nan).isna().sum()
       m3.metric("بحاجة لإكمال الشقة ⚠️", missing_count)
 
+      # ----------------- قسم التعديل عبر البحث المباشر -----------------
       st.markdown("---")
       st.subheader("✏️ البحث عن سيارة لتعديل أو استكمال معطياتها")
       st.caption("اكتب رقم اللوحة، اسم الساكن، أو رقم العمارة:")
@@ -1138,6 +1223,8 @@ elif st.session_state.active_tab == "admin":
             df["plate_number"].astype(str).str.contains(edit_query)
             | df["building"].astype(str).str.contains(edit_query)
             | df["apartment"].astype(str).str.contains(edit_query)
+            | df["apartment_type"].astype(str).str.contains(edit_query, case=False)
+            | df["car_type"].astype(str).str.contains(edit_query, case=False)
             | df["resident_name"].astype(str).str.contains(edit_query, case=False)
         )
         res_edit = df[mask_edit]
@@ -1178,33 +1265,49 @@ elif st.session_state.active_tab == "admin":
                     key=f"adm_preg_{selected_car_id}",
                 )
 
-              curr_type = (
-                  str(row_sel["car_type"])
-                  if "car_type" in row_sel and pd.notna(row_sel["car_type"])
-                  else "مقيم"
+              curr_status = clean_str(row_sel.get("car_type", "مالك"))
+              s_idx = (
+                  status_options.index(curr_status)
+                  if curr_status in status_options
+                  else 0
               )
-              type_idx = 0 if curr_type == "مقيم" else 1
               edit_car_type = st.radio(
-                  "صفة السيارة:",
-                  ["مقيم", "زائر مؤقت"],
-                  index=type_idx,
+                  "صفة الساكن:",
+                  status_options,
+                  index=s_idx,
                   horizontal=True,
                   key=f"adm_type_{selected_car_id}",
               )
 
-              c1, c2 = st.columns(2)
+              c1, c2, c3 = st.columns(3)
               with c1:
                 new_bld = st.text_input(
                     "رقم العمارة",
                     value=clean_str(row_sel["building"]),
                     key=f"adm_bld_{selected_car_id}",
                 )
+              with c2:
                 new_apt = st.text_input(
                     "رقم الشقة",
                     value=clean_str(row_sel["apartment"]),
                     key=f"adm_apt_{selected_car_id}",
                 )
-              with c2:
+              with c3:
+                curr_type_db = clean_str(row_sel.get("apartment_type", ""))
+                idx_t_db = (
+                    apt_types_list.index(curr_type_db)
+                    if curr_type_db in apt_types_list
+                    else 0
+                )
+                new_apt_type = st.selectbox(
+                    "نوع الشقة",
+                    apt_types_list,
+                    index=idx_t_db,
+                    key=f"adm_apttype_{selected_car_id}",
+                )
+
+              c_n1, c_n2 = st.columns(2)
+              with c_n1:
                 new_name = st.text_input(
                     "اسم الساكن",
                     value=(
@@ -1214,14 +1317,15 @@ elif st.session_state.active_tab == "admin":
                     ),
                     key=f"adm_name_{selected_car_id}",
                 )
+              with c_n2:
                 new_phone = st.text_input(
                     "رقم الهاتف",
                     value=clean_str(row_sel["phone"]),
                     key=f"adm_phone_{selected_car_id}",
                 )
 
-              c3, c4 = st.columns(2)
-              with c3:
+              c_c1, c_c2 = st.columns(2)
+              with c_c1:
                 new_car_info = st.text_input(
                     "نوع ولون السيارة",
                     value=(
@@ -1231,7 +1335,7 @@ elif st.session_state.active_tab == "admin":
                     ),
                     key=f"adm_car_{selected_car_id}",
                 )
-              with c4:
+              with c_c2:
                 new_notes = st.text_input(
                     "ملاحظات",
                     value=clean_str(row_sel["notes"]),
@@ -1250,6 +1354,7 @@ elif st.session_state.active_tab == "admin":
                     selected_car_id,
                     new_bld,
                     new_apt,
+                    new_apt_type,
                     new_name,
                     new_phone,
                     e_p_num,
@@ -1309,13 +1414,14 @@ elif st.session_state.active_tab == "admin":
             add_record(
                 clean_str(row.get("building", "")),
                 clean_str(row.get("apartment", "")),
+                clean_str(row.get("apartment_type", "")),
                 clean_str(row.get("resident_name", "")),
                 clean_str(row.get("phone", "")),
                 p_num,
                 str(row.get("plate_letter", "")),
                 clean_str(row.get("plate_region", "")),
                 clean_str(row.get("full_plate", "")),
-                str(row.get("car_type", "مقيم")),
+                clean_str(row.get("car_type", "مالك")),
                 str(row.get("car_info", "")),
                 clean_str(row.get("notes", "")),
             )
