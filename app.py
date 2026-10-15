@@ -178,7 +178,6 @@ def get_ocr_reader():
 def init_db():
   conn = sqlite3.connect(DB_FILE)
   c = conn.cursor()
-  # جدول السيارات
   c.execute("""
         CREATE TABLE IF NOT EXISTS residents_cars (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -197,7 +196,6 @@ def init_db():
         )
     """)
 
-  # جدول دليل الشقق وسكانها
   c.execute("""
         CREATE TABLE IF NOT EXISTS apartments_directory (
             apartment TEXT PRIMARY KEY,
@@ -246,7 +244,6 @@ def get_all_records():
 
 
 def get_apartment_info(apt_num):
-  """البحث عن معطيات الشقة من الدليل المخزن"""
   apt_clean = clean_str(apt_num)
   if not apt_clean:
     return None
@@ -547,7 +544,6 @@ def render_car_card(row, allow_edit=True):
               value=clean_str(row["apartment"]),
               key=f"card_apt_{rec_id}",
           )
-          # جلب تلقائي إذا كانت متوفرة
           auto_info = get_apartment_info(e_apt) if e_apt else None
           def_bld = (
               auto_info["building"]
@@ -683,7 +679,7 @@ with nav_c4:
 
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
-# ==================== 1. قسم الكاميرا والتحكم بالزووم ====================
+# ==================== 1. قسم الكاميرا ====================
 if st.session_state.active_tab == "camera":
   st.subheader("📷 التقاط لوحة السيارة")
 
@@ -731,10 +727,6 @@ if st.session_state.active_tab == "camera":
       else:
         st.success(f"🎯 ترقيم مرصود: **{full_display}**")
 
-        # معالجة جلب بيانات الشقة تلقائياً
-        if "cam_scanned_apt" not in st.session_state:
-          st.session_state.cam_scanned_apt = ""
-
         c_p1, c_p2, c_p3 = st.columns([2, 1, 1])
         with c_p1:
           p_num = st.text_input("الأرقام *", value=main_num, key="cam_pnum")
@@ -771,7 +763,6 @@ if st.session_state.active_tab == "camera":
               "جلب المعطيات ⚡", use_container_width=True, type="secondary"
           )
 
-        # جلب البيانات من الدليل إذا وُجدت
         apt_data = get_apartment_info(entered_apt) if entered_apt else None
         if apt_data:
           st.info(
@@ -781,31 +772,22 @@ if st.session_state.active_tab == "camera":
 
         c_b, c_a = st.columns(2)
         with c_b:
-          bld_val = (
-              apt_data["building"]
-              if apt_data
-              else st.session_state.get("cam_bld", "")
-          )
           bld = st.text_input(
-              "رقم العمارة", value=bld_val, placeholder="مثال: 12"
+              "رقم العمارة",
+              value=apt_data["building"] if apt_data else "",
+              placeholder="مثال: 12",
           )
         with c_a:
-          name_val = (
-              apt_data["resident_name"]
-              if apt_data
-              else st.session_state.get("cam_name", "")
-          )
           name = st.text_input(
-              "اسم الساكن", value=name_val, placeholder="الاسم الكامل"
+              "اسم الساكن",
+              value=apt_data["resident_name"] if apt_data else "",
+              placeholder="الاسم الكامل",
           )
 
-        phone_val = (
-            apt_data["phone"]
-            if apt_data
-            else st.session_state.get("cam_phone", "")
-        )
         phone = st.text_input(
-            "رقم الهاتف", value=phone_val, placeholder="06XXXXXXXX"
+            "رقم الهاتف",
+            value=apt_data["phone"] if apt_data else "",
+            placeholder="06XXXXXXXX",
         )
         car_desc = st.text_input("نوع ولون السيارة (اختياري)")
 
@@ -980,13 +962,10 @@ elif st.session_state.active_tab == "admin":
     st.success("🔓 تم الدخول كمسؤول للمنظومة.")
     df = get_all_records()
 
-    # قسم رفع قاعدة بيانات الشقق وسكانها
+    # قسم رفع دليل الشقق الذكي
     st.markdown("---")
     st.subheader("🏢 رفع وتحديث دليل الشقق والسكان (Excel)")
-    st.caption(
-        "ارفع ملف Excel يحتوي على أعمدة: رقم الشقة (apartment)، العمارة"
-        " (building)، اسم الساكن (resident_name)، الهاتف (phone):"
-    )
+    st.caption("ارفع ملف Excel الخاص بالقاطنين والشقق:")
 
     uploaded_dir = st.file_uploader(
         "اختر ملف Excel الخاص بسكان الإقامة", type=["xlsx", "xls"]
@@ -994,17 +973,35 @@ elif st.session_state.active_tab == "admin":
     if uploaded_dir is not None:
       try:
         dir_df = pd.read_excel(uploaded_dir)
-        # توحيد أسماء الأعمدة لتفادي أخطاء التسمية
+
+        # فحص إن كانت الترويسة في السطر الأول
+        first_row_vals = [
+            str(v).lower().strip() for v in dir_df.iloc[0].values
+        ]
+        if any(
+            x in first_row_vals
+            for x in ["apartment", "شقة", "immeuble", "building"]
+        ):
+          dir_df.columns = dir_df.iloc[0]
+          dir_df = dir_df[1:].reset_index(drop=True)
+
         col_map = {}
         for col in dir_df.columns:
           c_lower = str(col).lower().strip()
-          if "شقة" in c_lower or "apt" in c_lower or "apartment" in c_lower:
+          if any(k in c_lower for k in ["apt", "apartment", "شقة", "شقه"]):
             col_map[col] = "apartment"
-          elif "عمارة" in c_lower or "immeuble" in c_lower or "bld" in c_lower:
+          elif any(
+              k in c_lower for k in ["bld", "building", "عمارة", "عماره", "imm"]
+          ):
             col_map[col] = "building"
-          elif "اسم" in c_lower or "nom" in c_lower or "resident" in c_lower:
+          elif any(
+              k in c_lower
+              for k in ["name", "resident", "nom", "اسم", "قاطن", "ساكن"]
+          ):
             col_map[col] = "resident_name"
-          elif "هاتف" in c_lower or "tel" in c_lower or "phone" in c_lower:
+          elif any(
+              k in c_lower for k in ["phone", "tel", "هاتف", "جوال", "نقال"]
+          ):
             col_map[col] = "phone"
 
         dir_df = dir_df.rename(columns=col_map)
@@ -1020,14 +1017,15 @@ elif st.session_state.active_tab == "admin":
               add_or_update_apartment_dir(apt, bld, name, phone)
               added_count += 1
           st.success(f"🎉 تم تسجيل وتحديث ({added_count}) شقة وسكانها بنجاح!")
+          st.rerun()
         else:
           st.error(
-              "الملف المرفوع يجب أن يحتوي على عمود لرقم الشقة (apartment)."
+              "تعذر العثور على عمود رقم الشقة. تأكد من وجود عمود باسم apartment"
+              " أو رقم الشقة."
           )
       except Exception as e:
-        st.error(f"حدث خطأ أثناء قراءة الملف: {e}")
+        st.error(f"حدث خطأ أثناء معالجة الملف: {e}")
 
-    # عرض إحصائيات الدليل
     conn = sqlite3.connect(DB_FILE)
     apt_count = conn.cursor().execute("SELECT COUNT(*) FROM apartments_directory").fetchone()[0]
     conn.close()
