@@ -393,15 +393,76 @@ def delete_record(record_id):
   conn.close()
 
 
-# ----------------- معالجة الصور وفك تشفير اللوحة بالترتيب المكاني -----------------
+# ----------------- الكشف التلقائي عن مستطيل اللوحة وقصها (Auto-Crop) -----------------
+def detect_and_crop_license_plate(image_np):
+  """البحث عن المستطيل الأبيض للوحة السيارة المغربية وقصها بدقة لرفع جودة OCR"""
+  try:
+    h, w = image_np.shape[:2]
+    gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
+
+    # تحسين التباين وتطبيق فلتر الكشف عن الحواف
+    blur = cv2.bilateralFilter(gray, 11, 17, 17)
+    edged = cv2.Canny(blur, 30, 200)
+
+    # البحث عن الكنتورات (الحدود الهندسية)
+    contours, _ = cv2.findContours(
+        edged.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
+    )
+    contours = sorted(contours, key=cv2.contourArea, reverse=True)[:30]
+
+    plate_crop = None
+    for c in contours:
+      peri = cv2.arcLength(c, True)
+      approx = cv2.approxPolyDP(c, 0.02 * peri, True)
+
+      # إذا كان الشكل رباعي الأضلاع
+      if len(approx) == 4:
+        x, y, cw, ch = cv2.boundingRect(approx)
+        aspect_ratio = float(cw) / ch
+
+        # أبعاد اللوحات المغربية تتراوح نسبتها عادة بين 2.5 إلى 5.5 ومساحتها معقولة
+        if (
+            2.3 < aspect_ratio < 6.0
+            and cw > (w * 0.18)
+            and ch > (h * 0.04)
+            and (cw * ch) > 2500
+        ):
+          # إضافة هامش بسيط (Margin) حول اللوحة
+          pad_x = int(cw * 0.04)
+          pad_y = int(ch * 0.08)
+          y1 = max(0, y - pad_y)
+          y2 = min(h, y + ch + pad_y)
+          x1 = max(0, x - pad_x)
+          x2 = min(w, x + cw + pad_x)
+
+          plate_crop = image_np[y1:y2, x1:x2]
+          break
+
+    if plate_crop is not None:
+      # تكبير اللوحة المقصوصة لحجم ممتاز لقراءة الحروف
+      plate_resized = cv2.resize(
+          plate_crop, (600, 140), interpolation=cv2.INTER_CUBIC
+      )
+      return plate_resized, True
+  except Exception:
+    pass
+
+  # إذا تعذر الكشف الدقيق، نستخدم الصورة الأصلية
+  return image_np, False
+
+
 def clean_image_for_ocr(image_np):
-  gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
+  """تحويل الصورة الرمادي المصفى"""
+  if len(image_np.shape) == 3:
+    gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
+  else:
+    gray = image_np
   enhanced = cv2.equalizeHist(gray)
   return enhanced
 
 
 def parse_moroccan_plate(ocr_results):
-  """قراءة وتفكيك اللوحة المغربية بالاعتماد على الترتيب المكاني الهندسي (يمين = عمالة، وسط = حرف، يسار = رقم)"""
+  """تفكيك اللوحة حسب الترتيب المكاني: اليمين = عمالة، الوسط = حرف، اليسار = أرقام"""
   arabic_targets = {
       "أ": ["أ", "ا", "إ", "آ"],
       "ب": ["ب"],
@@ -419,7 +480,6 @@ def parse_moroccan_plate(ocr_results):
   if not ocr_results:
     return "", "", "", ""
 
-  # استخراج المربعات مع مركزها الأفقي X (لترتيب العناصر من اليمين إلى اليسار)
   boxes = []
   for bbox, text, prob in ocr_results:
     t = text.strip()
@@ -427,10 +487,10 @@ def parse_moroccan_plate(ocr_results):
       x_center = (bbox[0][0] + bbox[1][0] + bbox[2][0] + bbox[3][0]) / 4.0
       boxes.append((x_center, t))
 
-  # ترتيب العناصر من اليمين إلى اليسار تنازلياً (أعلى X في أقصى اليمين)
+  # ترتيب العناصر أفقياً من اليمين إلى اليسار
   boxes.sort(key=lambda item: item[0], reverse=True)
 
-  # 1. البحث عن الحرف العربي في النصوص بعد تجريد الرموز الفاصلة
+  # 1. البحث عن الحرف العربي
   detected_letter = ""
   for x_pos, txt in boxes:
     clean_txt = re.sub(r"[\s\|\/\\\[\]\(\)\-1I!l]", "", txt)
@@ -444,7 +504,6 @@ def parse_moroccan_plate(ocr_results):
     if detected_letter:
       break
 
-  # إذا تعذر، البحث عن حرف 'د' المقروء كـ 5 أو 0
   if not detected_letter:
     for x_pos, txt in boxes:
       clean_t = txt.strip()
@@ -452,7 +511,7 @@ def parse_moroccan_plate(ocr_results):
         detected_letter = "د"
         break
 
-  # 2. استخراج الأرقام من العناصر مع الحفاظ على مواقعها الأفقية
+  # 2. استخراج الأرقام من العناصر
   num_boxes = []
   for x_pos, txt in boxes:
     nums = re.findall(r"\d+", txt)
@@ -463,11 +522,10 @@ def parse_moroccan_plate(ocr_results):
   region_num = ""
 
   if num_boxes:
-    # الرقم ذو الطول الأكبر هو رقم اللوحة الرئيسي (أقصى اليسار)
     all_num_strs = [nb[1] for nb in num_boxes]
     main_num = clean_str(max(all_num_strs, key=len))
 
-    # العمالة هي الرقم في أقصى اليمين (أعلى X) ولا يتجاوز خانتين
+    # العمالة هي الرقم في أقصى اليمين ولا يتجاوز خانتين
     remaining = [nb for nb in num_boxes if nb[1] != main_num]
     if remaining:
       remaining.sort(key=lambda item: item[0], reverse=True)
@@ -690,10 +748,10 @@ with nav_c4:
 
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
-# ==================== 1. قسم الكاميرا ====================
+# ==================== 1. قسم الكاميرا مع القص التلقائي ====================
 if st.session_state.active_tab == "camera":
   st.subheader("📷 التقاط لوحة السيارة")
-  st.caption("وجه الكاميرا بوضوح بحيث تملأ اللوحة معظم الشاشة:")
+  st.caption("وجه الكاميرا نحو اللوحة والتقط الصورة:")
 
   camera_file = st.camera_input("")
 
@@ -702,14 +760,30 @@ if st.session_state.active_tab == "camera":
     image = Image.open(io.BytesIO(camera_file.getvalue()))
     image_np = np.array(image)
 
-    with st.spinner("⚡ جاري قراءة الترقيم بدقة عالية..."):
-      processed_np = clean_image_for_ocr(image_np)
+    with st.spinner("⚡ جاري استشعار اللوحة وقراءة الترقيم بدقة..."):
+      # 1. كشف وقص مستطيل اللوحة آلياً
+      cropped_plate, was_cropped = detect_and_crop_license_plate(image_np)
+
+      # 2. تنظيف الصورة المقصوصة
+      processed_np = clean_image_for_ocr(cropped_plate)
+
+      # 3. قراءة الترقيم
       results = reader.readtext(
           processed_np,
           allowlist="0123456789أبدهوجحيخزرWW -|[]()/",
           detail=1,
           paragraph=False,
       )
+
+      # إذا كانت النتيجة فارغة، نجرب قراءة الصورة الأصلية كبديل
+      if not results and was_cropped:
+        processed_orig = clean_image_for_ocr(image_np)
+        results = reader.readtext(
+            processed_orig,
+            allowlist="0123456789أبدهوجحيخزرWW -|[]()/",
+            detail=1,
+            paragraph=False,
+        )
 
     main_num, detected_let, region_num, full_display = parse_moroccan_plate(
         results
@@ -825,7 +899,7 @@ if st.session_state.active_tab == "camera":
             st.error("يرجى كتابة رقم اللوحة.")
     else:
       st.warning(
-          "تعذر قراءة أرقام واضحة، حاول التقاط صورة أقرب للوحة السيارة."
+          "تعذر قراءة أرقام واضحة، حاول التقاط صورة أقرب قليلاً للوحة."
       )
 
 # ==================== 2. قسم الاستعلام ====================
@@ -937,7 +1011,7 @@ elif st.session_state.active_tab == "add":
     else:
       st.error("أدخل رقم اللوحة على الأقل.")
 
-# ==================== 4. قسم الإدارة وتحميل دليل الشقق ====================
+# ==================== 4. قسم الإدارة ====================
 elif st.session_state.active_tab == "admin":
   st.subheader("🔒 إدارة المنظومة ودليل الشقق")
 
@@ -1047,7 +1121,6 @@ elif st.session_state.active_tab == "admin":
       missing_count = df["apartment"].replace("", np.nan).isna().sum()
       m3.metric("بحاجة لإكمال الشقة ⚠️", missing_count)
 
-      # ----------------- قسم التعديل عبر البحث المباشر -----------------
       st.markdown("---")
       st.subheader("✏️ البحث عن سيارة لتعديل أو استكمال معطياتها")
       st.caption("اكتب رقم اللوحة، اسم الساكن، أو رقم العمارة:")
