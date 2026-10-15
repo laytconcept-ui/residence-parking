@@ -261,7 +261,6 @@ def get_all_records():
 
 
 def search_apartments_directory(query):
-  """البحث الشامل داخل جدول دليل شقق وسكان fm6"""
   q = clean_str(query)
   if not q:
     return pd.DataFrame()
@@ -937,6 +936,14 @@ if st.session_state.active_tab == "camera":
         st.markdown("---")
         st.markdown("🏢 **تحديد العمارة والشقة لجلب المعطيات بدقة:**")
 
+        # تهيئة الحالة للكاميرا
+        if "cam_fetched_name" not in st.session_state:
+          st.session_state.cam_fetched_name = ""
+        if "cam_fetched_phone" not in st.session_state:
+          st.session_state.cam_fetched_phone = ""
+        if "cam_fetched_type" not in st.session_state:
+          st.session_state.cam_fetched_type = ""
+
         col_bld_in, col_apt_in, col_fetch_btn = st.columns([1.5, 1.5, 1])
         with col_bld_in:
           entered_bld = st.text_input(
@@ -949,31 +956,21 @@ if st.session_state.active_tab == "camera":
         with col_fetch_btn:
           st.write("")
           st.write("")
-          fetch_btn = st.button(
-              "جلب ⚡", use_container_width=True, type="secondary"
-          )
-
-        apt_data = (
-            get_apartment_info(entered_bld, entered_apt)
-            if (entered_bld or entered_apt)
-            else None
-        )
-        if apt_data:
-          st.success(
-              f"✅ تم التعرف على الساكن: **{apt_data['resident_name']}**"
-              f" (عمارة {apt_data['building']} - شقة {entered_apt})"
-          )
+          if st.button("جلب ⚡", key="cam_fetch_btn", use_container_width=True):
+            data = get_apartment_info(entered_bld, entered_apt)
+            if data:
+              st.session_state.cam_fetched_name = data["resident_name"]
+              st.session_state.cam_fetched_phone = data["phone"]
+              st.session_state.cam_fetched_type = data["apartment_type"]
+              st.rerun()
+            else:
+              st.warning("لم يتم العثور على شقة بهذه البيانات.")
 
         c_t1, c_t2 = st.columns(2)
         with c_t1:
-          apt_type_val = (
-              apt_data["apartment_type"]
-              if (apt_data and apt_data.get("apartment_type"))
-              else ""
-          )
           idx_type = (
-              apt_types_list.index(apt_type_val)
-              if apt_type_val in apt_types_list
+              apt_types_list.index(st.session_state.cam_fetched_type)
+              if st.session_state.cam_fetched_type in apt_types_list
               else 0
           )
           apartment_type = st.selectbox(
@@ -985,14 +982,16 @@ if st.session_state.active_tab == "camera":
         with c_t2:
           name = st.text_input(
               "اسم الساكن",
-              value=apt_data["resident_name"] if apt_data else "",
+              value=st.session_state.cam_fetched_name,
               placeholder="الاسم الكامل",
+              key="cam_name_input",
           )
 
         phone = st.text_input(
             "رقم الهاتف",
-            value=apt_data["phone"] if apt_data else "",
+            value=st.session_state.cam_fetched_phone,
             placeholder="06XXXXXXXX",
+            key="cam_phone_input",
         )
         car_desc = st.text_input("نوع ولون السيارة (اختياري)")
 
@@ -1019,6 +1018,10 @@ if st.session_state.active_tab == "camera":
                 car_desc,
                 "",
             )
+            # تصفير الحالة
+            st.session_state.cam_fetched_name = ""
+            st.session_state.cam_fetched_phone = ""
+            st.session_state.cam_fetched_type = ""
             st.success("تم الحفظ بنجاح!")
             st.rerun()
           else:
@@ -1051,7 +1054,6 @@ elif st.session_state.active_tab == "search":
       )
 
   if query:
-    # 1. البحث في جدول السيارات المسجلة
     df_cars = get_all_records()
     cars_found = False
 
@@ -1074,7 +1076,6 @@ elif st.session_state.active_tab == "search":
         for _, r in res_cars.iterrows():
           render_car_card(r, allow_edit=True)
 
-    # 2. البحث التلقائي في دليل الشقق والسكان (fm6)
     res_dir = search_apartments_directory(query)
     dir_found = False
 
@@ -1090,19 +1091,29 @@ elif st.session_state.active_tab == "search":
           " والسكان."
       )
 
-# ==================== 3. قسم التسجيل اليدوي ====================
+# ==================== 3. قسم التسجيل اليدوي (مع إصلاح زر الجلب المباشر) ====================
 elif st.session_state.active_tab == "add":
   st.subheader("➕ تسجيل سيارة يدوياً")
 
+  # تهيئة متغيرات الحفظ في الذاكرة لتحديث الحقول فوراً
+  if "m_name" not in st.session_state:
+    st.session_state.m_name = ""
+  if "m_phone" not in st.session_state:
+    st.session_state.m_phone = ""
+  if "m_type" not in st.session_state:
+    st.session_state.m_type = ""
+
   c1, c2, c3 = st.columns([2, 1, 1])
   with c1:
-    p_num = st.text_input("أرقام اللوحة *", placeholder="78954")
+    p_num = st.text_input("أرقام اللوحة *", placeholder="78954", key="m_p_num")
   with c2:
-    p_let = st.selectbox("حرف اللوحة", letters_list)
+    p_let = st.selectbox("حرف اللوحة", letters_list, key="m_p_let")
   with c3:
-    p_reg = st.text_input("العمالة", placeholder="26")
+    p_reg = st.text_input("العمالة", placeholder="26", key="m_p_reg")
 
-  car_type = st.radio("صفة الساكن:", status_options, horizontal=True)
+  car_type = st.radio(
+      "صفة الساكن:", status_options, horizontal=True, key="m_car_type"
+  )
 
   st.markdown("🏢 **تحديد العمارة والشقة:**")
   col_mbld, col_mapt, col_mbtn = st.columns([1.5, 1.5, 1])
@@ -1113,40 +1124,47 @@ elif st.session_state.active_tab == "add":
   with col_mbtn:
     st.write("")
     st.write("")
-    btn_m_fetch = st.button("جلب ⚡", key="m_fetch", use_container_width=True)
-
-  m_data = (
-      get_apartment_info(m_bld, m_apt) if (m_bld or m_apt) else None
-  )
+    # زر الجلب التفاعلي المباشر
+    if st.button("جلب ⚡", key="m_fetch_btn", use_container_width=True):
+      m_data = get_apartment_info(m_bld, m_apt)
+      if m_data:
+        st.session_state.m_name = m_data["resident_name"]
+        st.session_state.m_phone = m_data["phone"]
+        st.session_state.m_type = m_data["apartment_type"]
+        st.rerun()
+      else:
+        st.warning("⚠️ لم يتم العثور على شقة بهذه الأرقام في دليل السكان.")
 
   c_ma1, c_ma2 = st.columns(2)
   with c_ma1:
-    m_apt_type_val = (
-        m_data["apartment_type"]
-        if (m_data and m_data.get("apartment_type"))
-        else ""
-    )
     m_type_idx = (
-        apt_types_list.index(m_apt_type_val)
-        if m_apt_type_val in apt_types_list
+        apt_types_list.index(st.session_state.m_type)
+        if st.session_state.m_type in apt_types_list
         else 0
     )
     m_apt_type = st.selectbox(
-        "نوع الشقة:", apt_types_list, index=m_type_idx, key="manual_apt_type"
+        "نوع الشقة:",
+        apt_types_list,
+        index=m_type_idx,
+        key="manual_apt_type_select",
     )
   with c_ma2:
     name = st.text_input(
         "اسم الساكن",
-        value=m_data["resident_name"] if m_data else "",
-        key="m_name_input",
+        value=st.session_state.m_name,
+        placeholder="الاسم الكامل",
+        key="manual_name_input",
     )
 
   phone = st.text_input(
       "رقم الهاتف",
-      value=m_data["phone"] if m_data else "",
-      key="m_phone_input",
+      value=st.session_state.m_phone,
+      placeholder="06XXXXXXXX",
+      key="manual_phone_input",
   )
-  car_desc = st.text_input("نوع ولون السيارة")
+  car_desc = st.text_input(
+      "نوع ولون السيارة", placeholder="مثال: داسيا بيضاء", key="m_car_desc"
+  )
 
   if st.button("💾 حفظ في المنظومة", type="primary", use_container_width=True):
     if p_num:
@@ -1171,6 +1189,10 @@ elif st.session_state.active_tab == "add":
             car_desc,
             "",
         )
+        # تصفير الحالة بعد الحفظ الناجح
+        st.session_state.m_name = ""
+        st.session_state.m_phone = ""
+        st.session_state.m_type = ""
         st.success("تم الحفظ بنجاح!")
         st.rerun()
     else:
