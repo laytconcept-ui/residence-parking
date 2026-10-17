@@ -1,7 +1,6 @@
 import io
 import os
 import re
-import sqlite3
 from datetime import datetime
 import cv2
 import easyocr
@@ -9,6 +8,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(
     page_title="تدبير موقف سيارات إقامة نفيس",
@@ -18,8 +18,6 @@ st.set_page_config(
 )
 
 ADMIN_PIN = "1234"
-DB_FILE = "residence_parking.db"
-
 letters_list = ["", "أ", "ب", "د", "هـ", "و", "ج", "ح", "ي", "ز", "ر", "WW"]
 status_options = ["مالك", "مكتري", "زائر"]
 apt_types_list = ["", "F2", "F3", "F4", "F5", "أخرى"]
@@ -30,10 +28,8 @@ def clean_str(val):
     if len(val) == 0:
       return ""
     val = val.iloc[0] if hasattr(val, "iloc") else val[0]
-
   if pd.isna(val) or val is None:
     return ""
-
   s = str(val).strip()
   if s.lower() == "nan":
     return ""
@@ -46,7 +42,6 @@ def format_moroccan_phone(phone_val):
   p = clean_str(phone_val).replace(" ", "").replace("-", "")
   if not p:
     return ""
-  # إذا كان الرقم يبدأ بـ 6 أو 7 وطوله 9 أرقام، نضيف له 0 في البداية
   if len(p) == 9 and p.startswith(("6", "7", "5")):
     p = "0" + p
   return p
@@ -183,7 +178,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ----------------- تهيئة EasyOCR وقاعدة البيانات -----------------
+# ----------------- تهيئة EasyOCR وقراءة دليل الشقق fm6 -----------------
 
 
 @st.cache_resource
@@ -191,162 +186,120 @@ def get_ocr_reader():
   return easyocr.Reader(["ar", "en"], gpu=False)
 
 
-def init_db():
-  conn = sqlite3.connect(DB_FILE)
-  c = conn.cursor()
-  c.execute("""
-        CREATE TABLE IF NOT EXISTS residents_cars (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            building TEXT,
-            apartment TEXT,
-            apartment_type TEXT,
-            resident_name TEXT,
-            phone TEXT,
-            plate_number TEXT NOT NULL,
-            plate_letter TEXT,
-            plate_region TEXT,
-            full_plate TEXT,
-            car_type TEXT DEFAULT 'مالك',
-            car_info TEXT,
-            created_at TEXT,
-            notes TEXT
-        )
-    """)
-
-  c.execute("""
-        CREATE TABLE IF NOT EXISTS apartments_directory (
-            building TEXT,
-            apartment TEXT,
-            apartment_type TEXT,
-            resident_name TEXT,
-            phone TEXT,
-            PRIMARY KEY (building, apartment)
-        )
-    """)
-
-  cols = [
-      ("apartment_type", "TEXT"),
-      ("full_plate", "TEXT"),
-      ("car_type", "TEXT DEFAULT 'مالك'"),
-      ("created_at", "TEXT"),
-      ("notes", "TEXT"),
-  ]
-  for col_name, col_type in cols:
+@st.cache_data
+def load_fm6_directory():
+  """قراءة وتجهيز دليل الشقق الثابت من ملف fm6.xlsx الموجود في المشروع"""
+  if os.path.exists("fm6.xlsx"):
     try:
-      c.execute(f"ALTER TABLE residents_cars ADD COLUMN {col_name} {col_type}")
-    except sqlite3.OperationalError:
+      df = pd.read_excel("fm6.xlsx")
+      if "Unnamed: 0" in df.columns or "apartment" in [
+          str(v).lower().strip() for v in df.iloc[0].values
+      ]:
+        df.columns = df.iloc[0]
+        df = df[1:].reset_index(drop=True)
+
+      col_map = {}
+      for col in df.columns:
+        c_lower = str(col).lower().strip()
+        if any(k in c_lower for k in ["apt", "apartment", "شقة", "شقه"]):
+          col_map[col] = "apartment"
+        elif any(
+            k in c_lower for k in ["bld", "building", "عمارة", "عماره", "imm"]
+        ):
+          col_map[col] = "building"
+        elif any(
+            k in c_lower
+            for k in ["type", "نوع", "صنف", "f2", "f3", "f4", "typologie"]
+        ):
+          col_map[col] = "apartment_type"
+        elif any(
+            k in c_lower
+            for k in ["name", "resident", "nom", "اسم", "قاطن", "ساكن"]
+        ):
+          col_map[col] = "resident_name"
+        elif any(k in c_lower for k in ["phone", "tel", "هاتف", "جوال", "نقال"]):
+          col_map[col] = "phone"
+
+      df = df.rename(columns=col_map)
+      df = df.loc[:, ~df.columns.duplicated()]
+
+      for c in [
+          "building",
+          "apartment",
+          "apartment_type",
+          "resident_name",
+          "phone",
+      ]:
+        if c not in df.columns:
+          df[c] = ""
+        else:
+          df[c] = df[c].apply(clean_str)
+
+      df["phone"] = df["phone"].apply(format_moroccan_phone)
+      return df
+    except Exception:
       pass
+  return pd.DataFrame(
+      columns=[
+          "building",
+          "apartment",
+          "apartment_type",
+          "resident_name",
+          "phone",
+      ]
+  )
 
-  try:
-    c.execute("ALTER TABLE apartments_directory ADD COLUMN apartment_type TEXT")
-  except sqlite3.OperationalError:
-    pass
 
-  conn.commit()
-  conn.close()
-
-
-init_db()
+# ----------------- الربط السحابي الدائم مع Google Sheets -----------------
+try:
+  conn_gs = st.connection("gsheets", type=GSheetsConnection)
+except Exception:
+  conn_gs = None
 
 
 def get_all_records():
-  conn = sqlite3.connect(DB_FILE)
-  df = pd.read_sql_query("SELECT * FROM residents_cars ORDER BY id DESC", conn)
-  conn.close()
-
-  for col in [
-      "building",
-      "apartment",
-      "apartment_type",
-      "plate_number",
-      "plate_region",
-      "resident_name",
-      "phone",
-      "notes",
-  ]:
-    if col in df.columns:
-      df[col] = df[col].apply(clean_str)
-
-  return df
-
-
-def search_apartments_directory(query):
-  q = clean_str(query)
-  if not q:
-    return pd.DataFrame()
-  conn = sqlite3.connect(DB_FILE)
-  df_dir = pd.read_sql_query(
-      """
-        SELECT building, apartment, apartment_type, resident_name, phone 
-        FROM apartments_directory
-        WHERE resident_name LIKE ? 
-           OR phone LIKE ? 
-           OR building LIKE ? 
-           OR apartment LIKE ?
-        ORDER BY CAST(building AS INTEGER), CAST(apartment AS INTEGER)
-    """,
-      conn,
-      params=(f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"),
+  """جلب كافة السيارات من جدول Google Sheets السحابي"""
+  if conn_gs is not None:
+    try:
+      df = conn_gs.read(ttl=0)
+      if df is not None and not df.empty:
+        df = df.loc[:, ~df.columns.duplicated()]
+        for col in df.columns:
+          df[col] = df[col].apply(clean_str)
+        if "phone" in df.columns:
+          df["phone"] = df["phone"].apply(format_moroccan_phone)
+        return df
+    except Exception:
+      pass
+  return pd.DataFrame(
+      columns=[
+          "id",
+          "building",
+          "apartment",
+          "apartment_type",
+          "resident_name",
+          "phone",
+          "plate_number",
+          "plate_letter",
+          "plate_region",
+          "full_plate",
+          "car_type",
+          "car_info",
+          "created_at",
+          "notes",
+      ]
   )
-  conn.close()
-  for col in df_dir.columns:
-    df_dir[col] = df_dir[col].apply(clean_str)
-  return df_dir
 
 
-def get_apartment_info(bld_num, apt_num):
-  b_clean = clean_str(bld_num)
-  a_clean = clean_str(apt_num)
-  if not a_clean:
-    return None
-
-  conn = sqlite3.connect(DB_FILE)
-  c = conn.cursor()
-
-  if b_clean:
-    c.execute(
-        "SELECT building, apartment_type, resident_name, phone FROM"
-        " apartments_directory WHERE building = ? AND apartment = ?",
-        (b_clean, a_clean),
-    )
-    res = c.fetchone()
-  else:
-    c.execute(
-        "SELECT building, apartment_type, resident_name, phone FROM"
-        " apartments_directory WHERE apartment = ?",
-        (a_clean,),
-    )
-    res = c.fetchone()
-
-  conn.close()
-  if res:
-    return {
-        "building": clean_str(res[0]),
-        "apartment_type": clean_str(res[1]),
-        "resident_name": clean_str(res[2]),
-        "phone": format_moroccan_phone(res[3]),
-    }
-  return None
-
-
-def add_or_update_apartment_dir(bld, apt, apt_type, name, phone):
-  conn = sqlite3.connect(DB_FILE)
-  c = conn.cursor()
-  c.execute(
-      """
-        INSERT OR REPLACE INTO apartments_directory (building, apartment, apartment_type, resident_name, phone)
-        VALUES (?, ?, ?, ?, ?)
-    """,
-      (
-          clean_str(bld),
-          clean_str(apt),
-          clean_str(apt_type),
-          clean_str(name),
-          format_moroccan_phone(phone),
-      ),
-  )
-  conn.commit()
-  conn.close()
+def save_all_records(df):
+  """حفظ البيانات وتحديثها في Google Sheets فوراً"""
+  if conn_gs is not None:
+    try:
+      conn_gs.update(data=df)
+      return True
+    except Exception as e:
+      st.error(f"خطأ أثناء الحفظ السحابي في Google Sheets: {e}")
+  return False
 
 
 def add_record(
@@ -363,39 +316,33 @@ def add_record(
     car_info,
     notes,
 ):
-  now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-  building = clean_str(building)
-  apartment = clean_str(apartment)
-  apartment_type = clean_str(apartment_type)
-  plate_num = clean_str(plate_num)
-  plate_reg = clean_str(plate_reg)
-  phone = format_moroccan_phone(phone)
-
-  conn = sqlite3.connect(DB_FILE)
-  c = conn.cursor()
-  c.execute(
-      """
-        INSERT INTO residents_cars (building, apartment, apartment_type, resident_name, phone, plate_number, plate_letter, plate_region, full_plate, car_type, car_info, created_at, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """,
-      (
-          building,
-          apartment,
-          apartment_type,
-          name,
-          phone,
-          plate_num,
-          plate_let,
-          plate_reg,
-          full_plate,
-          car_type,
-          car_info,
-          now_str,
-          notes,
-      ),
+  df = get_all_records()
+  new_id = (
+      1
+      if df.empty or "id" not in df.columns
+      else (pd.to_numeric(df["id"], errors="coerce").max() + 1)
   )
-  conn.commit()
-  conn.close()
+  if pd.isna(new_id):
+    new_id = 1
+
+  new_row = {
+      "id": int(new_id),
+      "building": clean_str(building),
+      "apartment": clean_str(apartment),
+      "apartment_type": clean_str(apartment_type),
+      "resident_name": clean_str(name),
+      "phone": format_moroccan_phone(phone),
+      "plate_number": clean_str(plate_num),
+      "plate_letter": str(plate_let),
+      "plate_region": clean_str(plate_reg),
+      "full_plate": clean_str(full_plate),
+      "car_type": clean_str(car_type),
+      "car_info": clean_str(car_info),
+      "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+      "notes": clean_str(notes),
+  }
+  df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+  save_all_records(df)
 
 
 def update_full_record(
@@ -413,49 +360,57 @@ def update_full_record(
     car_info,
     notes,
 ):
-  building = clean_str(building)
-  apartment = clean_str(apartment)
-  apartment_type = clean_str(apartment_type)
-  plate_num = clean_str(plate_num)
-  plate_reg = clean_str(plate_reg)
-  phone = format_moroccan_phone(phone)
-
-  conn = sqlite3.connect(DB_FILE)
-  c = conn.cursor()
-  c.execute(
-      """
-        UPDATE residents_cars
-        SET building = ?, apartment = ?, apartment_type = ?, resident_name = ?, phone = ?, 
-            plate_number = ?, plate_letter = ?, plate_region = ?, full_plate = ?,
-            car_type = ?, car_info = ?, notes = ?
-        WHERE id = ?
-    """,
-      (
-          building,
-          apartment,
-          apartment_type,
-          name,
-          phone,
-          plate_num,
-          plate_let,
-          plate_reg,
-          full_plate,
-          car_type,
-          car_info,
-          notes,
-          int(record_id),
-      ),
-  )
-  conn.commit()
-  conn.close()
+  df = get_all_records()
+  if not df.empty and "id" in df.columns:
+    mask = df["id"].astype(str) == str(record_id)
+    if mask.any():
+      df.loc[mask, "building"] = clean_str(building)
+      df.loc[mask, "apartment"] = clean_str(apartment)
+      df.loc[mask, "apartment_type"] = clean_str(apartment_type)
+      df.loc[mask, "resident_name"] = clean_str(name)
+      df.loc[mask, "phone"] = format_moroccan_phone(phone)
+      df.loc[mask, "plate_number"] = clean_str(plate_num)
+      df.loc[mask, "plate_letter"] = str(plate_let)
+      df.loc[mask, "plate_region"] = clean_str(plate_reg)
+      df.loc[mask, "full_plate"] = clean_str(full_plate)
+      df.loc[mask, "car_type"] = clean_str(car_type)
+      df.loc[mask, "car_info"] = clean_str(car_info)
+      df.loc[mask, "notes"] = clean_str(notes)
+      save_all_records(df)
 
 
 def delete_record(record_id):
-  conn = sqlite3.connect(DB_FILE)
-  c = conn.cursor()
-  c.execute("DELETE FROM residents_cars WHERE id = ?", (int(record_id),))
-  conn.commit()
-  conn.close()
+  df = get_all_records()
+  if not df.empty and "id" in df.columns:
+    df = df[df["id"].astype(str) != str(record_id)]
+    save_all_records(df)
+
+
+def get_apartment_info(bld_num, apt_num):
+  b_clean = clean_str(bld_num)
+  a_clean = clean_str(apt_num)
+  if not a_clean:
+    return None
+
+  df_dir = load_fm6_directory()
+  if not df_dir.empty:
+    if b_clean:
+      match = df_dir[
+          (df_dir["building"].astype(str) == b_clean)
+          & (df_dir["apartment"].astype(str) == a_clean)
+      ]
+    else:
+      match = df_dir[df_dir["apartment"].astype(str) == a_clean]
+
+    if not match.empty:
+      r = match.iloc[0]
+      return {
+          "building": clean_str(r.get("building", "")),
+          "apartment_type": clean_str(r.get("apartment_type", "")),
+          "resident_name": clean_str(r.get("resident_name", "")),
+          "phone": format_moroccan_phone(r.get("phone", "")),
+      }
+  return None
 
 
 # ----------------- معالجة الصور وفك التشفير -----------------
@@ -605,7 +560,7 @@ def render_car_card(row, allow_edit=True):
   apt_type = clean_str(row.get("apartment_type", ""))
   c_type = clean_str(row.get("car_type", "مالك"))
   clean_phone = clean_str(row.get("phone", ""))
-  rec_id = int(row["id"])
+  rec_id = clean_str(row.get("id", ""))
 
   badge_color = "#15803d" if c_type == "مالك" else (
       "#1d4ed8" if c_type == "مكتري" else "#b45309"
@@ -675,7 +630,7 @@ def render_car_card(row, allow_edit=True):
         )
         st.link_button("💬 تنبيه واتساب", wa_link, use_container_width=True)
 
-    if allow_edit:
+    if allow_edit and rec_id:
       with st.expander("✏️ تعديل أو إكمال معطيات هذه السيارة"):
         col_e1, col_e2, col_e3 = st.columns(3)
         with col_e1:
@@ -751,7 +706,9 @@ def render_car_card(row, allow_edit=True):
         )
 
         if st.button(
-            "💾 حفظ التعديلات", key=f"btn_save_card_{rec_id}", type="primary"
+            "💾 حفظ التعديلات سحابياً",
+            key=f"btn_save_card_{rec_id}",
+            type="primary",
         ):
           p_full_str = f"{clean_str(row['plate_number'])} | {row['plate_letter']} | {clean_str(row['plate_region'])}"
           update_full_record(
@@ -769,7 +726,7 @@ def render_car_card(row, allow_edit=True):
               e_car,
               e_notes,
           )
-          st.success("✅ تم حفظ التعديلات بنجاح!")
+          st.success("✅ تم حفظ التعديلات في Google Sheets بنجاح!")
           st.rerun()
 
 
@@ -824,11 +781,11 @@ st.markdown(
 <div class="app-top-header">
     <div>
         <h2>🚗 تدبير موقف سيارات إقامة نفيس</h2>
-        <div style="font-size: 11px; opacity: 0.8; margin-top: 2px;">نظام التسيير والتحقق الفوري</div>
+        <div style="font-size: 11px; opacity: 0.8; margin-top: 2px;">نظام التسيير والتحقق الفوري (Google Sheets Sync)</div>
     </div>
     <div class="status-badge">
         <span style="height: 8px; width: 8px; background-color: #34d399; border-radius: 50%; display: inline-block;"></span>
-        النظام متصل
+        سحابي دائم
     </div>
 </div>
 """,
@@ -946,7 +903,6 @@ if st.session_state.active_tab == "camera":
         st.markdown("---")
         st.markdown("🏢 **تحديد العمارة والشقة لجلب المعطيات بدقة:**")
 
-        # تهيئة الحالة للحقول
         if "cam_name_input" not in st.session_state:
           st.session_state["cam_name_input"] = ""
         if "cam_phone_input" not in st.session_state:
@@ -957,11 +913,11 @@ if st.session_state.active_tab == "camera":
         col_bld_in, col_apt_in, col_fetch_btn = st.columns([1.5, 1.5, 1])
         with col_bld_in:
           entered_bld = st.text_input(
-              "العمارة:", placeholder="مثال: 5", key="cam_bld_input"
+              "العمارة:", placeholder="مثال: 1", key="cam_bld_input"
           )
         with col_apt_in:
           entered_apt = st.text_input(
-              "الشقة:", placeholder="مثال: 12", key="cam_apt_input"
+              "الشقة:", placeholder="مثال: 1", key="cam_apt_input"
           )
         with col_fetch_btn:
           st.write("")
@@ -999,7 +955,7 @@ if st.session_state.active_tab == "camera":
         car_desc = st.text_input("نوع ولون السيارة (اختياري)", key="cam_desc_in")
 
         if st.button(
-            "💾 حفظ الترقيم والمعطيات في المنظومة",
+            "💾 حفظ الترقيم سحابياً في Google Sheets",
             type="primary",
             use_container_width=True,
         ):
@@ -1024,7 +980,7 @@ if st.session_state.active_tab == "camera":
             st.session_state["cam_name_input"] = ""
             st.session_state["cam_phone_input"] = ""
             st.session_state["cam_apt_type_select"] = ""
-            st.success("تم الحفظ بنجاح!")
+            st.success("تم الحفظ بنجاح في Google Sheets!")
             st.rerun()
           else:
             st.error("يرجى كتابة رقم اللوحة.")
@@ -1037,8 +993,8 @@ if st.session_state.active_tab == "camera":
 elif st.session_state.active_tab == "search":
   st.subheader("🔍 استعلام وبحث فوري شامل")
   st.caption(
-      "البحث التلقائي يشمل كلاً من: جدول السيارات المسجلة حديثاً + جدول دليل"
-      " الشقق وسكانها (fm6):"
+      "البحث التلقائي يشمل: جدول سيارات الموقف (Google Sheets) + دليل الشقق"
+      " والسكان (fm6):"
   )
 
   with st.form("search_form"):
@@ -1078,14 +1034,24 @@ elif st.session_state.active_tab == "search":
         for _, r in res_cars.iterrows():
           render_car_card(r, allow_edit=True)
 
-    res_dir = search_apartments_directory(query)
+    df_dir_all = load_fm6_directory()
     dir_found = False
 
-    if not res_dir.empty:
-      dir_found = True
-      st.markdown(f"### 🏢 نتائج دليل الشقق والسكان (fm6) ({len(res_dir)} ساكن)")
-      for _, r_dir in res_dir.iterrows():
-        render_directory_card(r_dir)
+    if not df_dir_all.empty:
+      mask_dir = (
+          df_dir_all["resident_name"].astype(str).str.contains(query, case=False)
+          | df_dir_all["phone"].astype(str).str.contains(query)
+          | df_dir_all["building"].astype(str).str.contains(query)
+          | df_dir_all["apartment"].astype(str).str.contains(query)
+      )
+      res_dir = df_dir_all[mask_dir]
+      if not res_dir.empty:
+        dir_found = True
+        st.markdown(
+            f"### 🏢 نتائج دليل الشقق والسكان (fm6) ({len(res_dir)} ساكن)"
+        )
+        for _, r_dir in res_dir.iterrows():
+          render_directory_card(r_dir)
 
     if not cars_found and not dir_found:
       st.info(
@@ -1093,11 +1059,10 @@ elif st.session_state.active_tab == "search":
           " والسكان."
       )
 
-# ==================== 3. قسم التسجيل اليدوي (مصحح ومضمون 100%) ====================
+# ==================== 3. قسم التسجيل اليدوي ====================
 elif st.session_state.active_tab == "add":
   st.subheader("➕ تسجيل سيارة يدوياً")
 
-  # تهيئة مفاتيح الحقول في Session State
   if "manual_name_input" not in st.session_state:
     st.session_state["manual_name_input"] = ""
   if "manual_phone_input" not in st.session_state:
@@ -1126,7 +1091,6 @@ elif st.session_state.active_tab == "add":
   with col_mbtn:
     st.write("")
     st.write("")
-    # عند الضغط نقوم بتحديث قيم الـ widgets مباشرة
     if st.button("جلب ⚡", key="m_fetch_btn", use_container_width=True):
       m_data = get_apartment_info(m_bld, m_apt)
       if m_data:
@@ -1163,7 +1127,9 @@ elif st.session_state.active_tab == "add":
       "نوع ولون السيارة", placeholder="مثال: داسيا بيضاء", key="m_car_desc"
   )
 
-  if st.button("💾 حفظ في المنظومة", type="primary", use_container_width=True):
+  if st.button(
+      "💾 حفظ في Google Sheets سحابياً", type="primary", use_container_width=True
+  ):
     if p_num:
       p_num = clean_str(p_num)
       p_reg = clean_str(p_reg)
@@ -1186,18 +1152,17 @@ elif st.session_state.active_tab == "add":
             car_desc,
             "",
         )
-        # تصفير الحقول بعد الحفظ
         st.session_state["manual_name_input"] = ""
         st.session_state["manual_phone_input"] = ""
         st.session_state["manual_apt_type_select"] = ""
-        st.success("تم الحفظ بنجاح!")
+        st.success("تم الحفظ بنجاح في Google Sheets!")
         st.rerun()
     else:
       st.error("أدخل رقم اللوحة على الأقل.")
 
-# ==================== 4. قسم الإدارة وتحديث دليل الشقق ====================
+# ==================== 4. قسم الإدارة ====================
 elif st.session_state.active_tab == "admin":
-  st.subheader("🔒 إدارة المنظومة ودليل الشقق")
+  st.subheader("🔒 إدارة المنظومة وقاعدة البيانات السحابية")
 
   if "admin_authenticated" not in st.session_state:
     st.session_state.admin_authenticated = False
@@ -1225,95 +1190,18 @@ elif st.session_state.active_tab == "admin":
 
   if st.session_state.admin_authenticated:
     st.success("🔓 تم الدخول كمسؤول للمنظومة.")
+
+    df_dir_check = load_fm6_directory()
+    st.info(
+        f"🏢 إجمالي الشقق المحملة تلقائياً من المستودع (fm6.xlsx):"
+        f" **{len(df_dir_check)} شقة** (ثابتة ودائمة ولا تختفي أبداً)"
+    )
+
     df = get_all_records()
 
-    st.markdown("---")
-    st.subheader("🏢 رفع وتحديث دليل الشقق والسكان (Excel)")
-    st.caption("ارفع ملف Excel الخاص بالقاطنين والشقق:")
-
-    uploaded_dir = st.file_uploader(
-        "اختر ملف Excel الخاص بسكان الإقامة", type=["xlsx", "xls"]
-    )
-    if uploaded_dir is not None:
-      try:
-        dir_df = pd.read_excel(uploaded_dir)
-
-        first_row_vals = [
-            str(v).lower().strip() for v in dir_df.iloc[0].values
-        ]
-        if any(
-            x in first_row_vals
-            for x in ["apartment", "شقة", "immeuble", "building"]
-        ):
-          dir_df.columns = dir_df.iloc[0]
-          dir_df = dir_df[1:].reset_index(drop=True)
-
-        col_map = {}
-        for col in dir_df.columns:
-          c_lower = str(col).lower().strip()
-          if any(k in c_lower for k in ["apt", "apartment", "شقة", "شقه"]):
-            col_map[col] = "apartment"
-          elif any(
-              k in c_lower for k in ["bld", "building", "عمارة", "عماره", "imm"]
-          ):
-            col_map[col] = "building"
-          elif any(
-              k in c_lower
-              for k in [
-                  "type",
-                  "نوع",
-                  "صنف",
-                  "f2",
-                  "f3",
-                  "f4",
-                  "typologie",
-                  "modèle",
-              ]
-          ):
-            col_map[col] = "apartment_type"
-          elif any(
-              k in c_lower
-              for k in ["name", "resident", "nom", "اسم", "قاطن", "ساكن"]
-          ):
-            col_map[col] = "resident_name"
-          elif any(
-              k in c_lower for k in ["phone", "tel", "هاتف", "جوال", "نقال"]
-          ):
-            col_map[col] = "phone"
-
-        dir_df = dir_df.rename(columns=col_map)
-        dir_df = dir_df.loc[:, ~dir_df.columns.duplicated()]
-
-        if "apartment" in dir_df.columns and "building" in dir_df.columns:
-          added_count = 0
-          for _, row in dir_df.iterrows():
-            apt = clean_str(row.get("apartment", ""))
-            bld = clean_str(row.get("building", ""))
-            apt_type = clean_str(row.get("apartment_type", ""))
-            name = clean_str(row.get("resident_name", ""))
-            phone = clean_str(row.get("phone", ""))
-            if apt and bld:
-              add_or_update_apartment_dir(bld, apt, apt_type, name, phone)
-              added_count += 1
-          st.success(
-              f"🎉 تم تسجيل وتحديث ({added_count}) شقة وسكانها موزعة على"
-              " العمارات بنجاح!"
-          )
-          st.rerun()
-        else:
-          st.error("الملف يجب أن يحتوي على عمودين: رقم الشقة ورقم العمارة.")
-      except Exception as e:
-        st.error(f"حدث خطأ أثناء معالجة الملف: {e}")
-
-    conn = sqlite3.connect(DB_FILE)
-    apt_count = conn.cursor().execute("SELECT COUNT(*) FROM apartments_directory").fetchone()[0]
-    conn.close()
-    st.info(f"إجمالي الشقق المسجلة في دليل الإقامة حالياً: **{apt_count} شقة**")
-
     if not df.empty:
-      st.markdown("---")
       m1, m2, m3 = st.columns(3)
-      m1.metric("إجمالي السيارات المسجلة", len(df))
+      m1.metric("إجمالي السيارات في السحاب", len(df))
       m2.metric(
           "مكتملة البيانات",
           df["apartment"].replace("", np.nan).dropna().count(),
@@ -1348,7 +1236,7 @@ elif st.session_state.active_tab == "admin":
         if not res_edit.empty:
           st.write(f"تم العثور على ({len(res_edit)}) نتيجة:")
           for _, row_sel in res_edit.iterrows():
-            selected_car_id = int(row_sel["id"])
+            selected_car_id = str(row_sel["id"])
             with st.expander(
                 f"📝 تعديل: [{row_sel['full_plate']}] - العمارة:"
                 f" {row_sel['building']} | الساكن: {row_sel['resident_name']}",
@@ -1459,7 +1347,7 @@ elif st.session_state.active_tab == "admin":
                 )
 
               if st.button(
-                  "💾 حفظ وتحديث المعطيات فوراً",
+                  "💾 حفظ التعديلات سحابياً",
                   key=f"btn_save_adm_{selected_car_id}",
                   type="primary",
               ):
@@ -1481,13 +1369,13 @@ elif st.session_state.active_tab == "admin":
                     new_car_info,
                     new_notes,
                 )
-                st.success("✅ تم تحديث بيانات السيارة بنجاح في قاعدة البيانات!")
+                st.success("✅ تم تحديث بيانات السيارة سحابياً في Google Sheets!")
                 st.rerun()
         else:
           st.info("لم يتم العثور على أي سيارة مطابقة للبحث للتعديل عليها.")
 
       st.markdown("---")
-      st.subheader("📋 الجدول الشامل للسيارات")
+      st.subheader("📋 الجدول الشامل للسيارات (Google Sheets)")
       st.dataframe(df, use_container_width=True)
 
       towrite = io.BytesIO()
@@ -1505,7 +1393,7 @@ elif st.session_state.active_tab == "admin":
           use_container_width=True,
       )
 
-      with st.expander("🗑️ حذف سيارة من النظام"):
+      with st.expander("🗑️ حذف سيارة من النظام السحابي"):
         del_id = st.number_input(
             "أدخل معرف السجل (ID):", min_value=1, step=1
         )
@@ -1513,33 +1401,4 @@ elif st.session_state.active_tab == "admin":
           delete_record(del_id)
           st.rerun()
     else:
-      st.info("لا توجد سيارات مسجلة بعد.")
-
-    st.markdown("---")
-    with st.expander("📤 استعادة أو رفع بيانات سيارات من ملف Excel"):
-      uploaded_excel = st.file_uploader(
-          "اختر ملف Excel لاسترجاع السيارات المسجلة", type=["xlsx"]
-      )
-      if uploaded_excel is not None:
-        df_up = pd.read_excel(uploaded_excel)
-        for _, row in df_up.iterrows():
-          p_num = clean_str(row.get("plate_number", ""))
-          if p_num and (
-              df.empty or df[df["plate_number"].astype(str) == p_num].empty
-          ):
-            add_record(
-                clean_str(row.get("building", "")),
-                clean_str(row.get("apartment", "")),
-                clean_str(row.get("apartment_type", "")),
-                clean_str(row.get("resident_name", "")),
-                clean_str(row.get("phone", "")),
-                p_num,
-                str(row.get("plate_letter", "")),
-                clean_str(row.get("plate_region", "")),
-                clean_str(row.get("full_plate", "")),
-                clean_str(row.get("car_type", "مالك")),
-                str(row.get("car_info", "")),
-                clean_str(row.get("notes", "")),
-            )
-        st.success("✅ تمت استعادة كافة السيارات وتطهير الأرقام بنجاح!")
-        st.rerun()
+      st.info("لا توجد سيارات مسجلة بعد في Google Sheets.")
