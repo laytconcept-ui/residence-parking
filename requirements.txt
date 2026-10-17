@@ -1,6 +1,7 @@
 streamlit
+easyocr
+opencv-python-headless
 pandas
 openpyxl
 pillow
-easyocr
-opencv-python-headless
+streamlit-gsheets
