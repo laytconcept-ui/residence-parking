@@ -248,8 +248,16 @@ init_db()
 
 # ----------------- التحميل التلقائي لدليل الشقق fm6.xlsx -----------------
 def auto_load_fm6():
-  """تحميل دليل الشقق تلقائياً من المستودع إذا وُجد الملف"""
-  if os.path.exists("fm6.xlsx"):
+  """تحميل دليل الشقق تلقائياً من ملف fm6.xlsx الموجود في المستودع"""
+  # فحص وجود الجدول أولاً
+  conn = sqlite3.connect(DB_FILE)
+  c = conn.cursor()
+  c.execute("SELECT COUNT(*) FROM apartments_directory")
+  current_count = c.fetchone()[0]
+  conn.close()
+
+  # إذا كانت القاعدة فارغة والملف موجود في المستودع
+  if current_count == 0 and os.path.exists("fm6.xlsx"):
     try:
       df = pd.read_excel("fm6.xlsx")
       first_row_vals = [str(v).lower().strip() for v in df.iloc[0].values]
