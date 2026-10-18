@@ -17,6 +17,31 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# ----------------- تثبيت أيقونة السيارة لمتصفح الهاتف -----------------
+st.markdown(
+    """
+    <head>
+        <link rel="icon" type="image/png" sizes="192x192" href="https://cdn-icons-png.flaticon.com/512/3202/3202926.png">
+        <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3202/3202926.png">
+        <meta name="mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta name="theme-color" content="#2563eb">
+    </head>
+    <script>
+    const linkIcon = document.createElement('link');
+    linkIcon.rel = 'icon';
+    linkIcon.href = 'https://cdn-icons-png.flaticon.com/512/3202/3202926.png';
+    document.head.appendChild(linkIcon);
+
+    const linkApple = document.createElement('link');
+    linkApple.rel = 'apple-touch-icon';
+    linkApple.href = 'https://cdn-icons-png.flaticon.com/512/3202/3202926.png';
+    document.head.appendChild(linkApple);
+    </script>
+""",
+    unsafe_allow_html=True,
+)
+
 ADMIN_PIN = "1234"
 DB_FILE = "residence_parking.db"
 
@@ -180,14 +205,85 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ----------------- تهيئة EasyOCR وقاعدة البيانات -----------------
+
+# ----------------- دالة تحميل دليل الشقق من ملف fm6.xlsx مباشرة -----------------
+def auto_load_fm6_from_repo():
+  """قراءة وتحديث بيانات الشقق من ملف fm6.xlsx الموجود بجانب الكود في المستودع"""
+  excel_file = None
+  for fname in ["fm6.xlsx", "FM6.xlsx", "fm6.xls"]:
+    if os.path.exists(fname):
+      excel_file = fname
+      break
+
+  if excel_file:
+    try:
+      df = pd.read_excel(excel_file)
+      first_row_vals = [str(v).lower().strip() for v in df.iloc[0].values]
+      if any(
+          x in first_row_vals
+          for x in ["apartment", "شقة", "immeuble", "building"]
+      ):
+        df.columns = df.iloc[0]
+        df = df[1:].reset_index(drop=True)
+
+      col_map = {}
+      for col in df.columns:
+        c_lower = str(col).lower().strip()
+        if any(k in c_lower for k in ["apt", "apartment", "شقة", "شقه"]):
+          col_map[col] = "apartment"
+        elif any(
+            k in c_lower for k in ["bld", "building", "عمارة", "عماره", "imm"]
+        ):
+          col_map[col] = "building"
+        elif any(
+            k in c_lower
+            for k in [
+                "type",
+                "نوع",
+                "صنف",
+                "f2",
+                "f3",
+                "f4",
+                "typologie",
+                "modèle",
+            ]
+        ):
+          col_map[col] = "apartment_type"
+        elif any(
+            k in c_lower
+            for k in ["name", "resident", "nom", "اسم", "قاطن", "ساكن"]
+        ):
+          col_map[col] = "resident_name"
+        elif any(k in c_lower for k in ["phone", "tel", "هاتف", "جوال", "نقال"]):
+          col_map[col] = "phone"
+
+      df = df.rename(columns=col_map)
+      df = df.loc[:, ~df.columns.duplicated()]
+
+      if "apartment" in df.columns and "building" in df.columns:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        for _, row in df.iterrows():
+          apt = clean_str(row.get("apartment", ""))
+          bld = clean_str(row.get("building", ""))
+          apt_type = clean_str(row.get("apartment_type", ""))
+          name = clean_str(row.get("resident_name", ""))
+          phone = format_moroccan_phone(row.get("phone", ""))
+          if apt and bld:
+            c.execute(
+                """
+                            INSERT OR REPLACE INTO apartments_directory (building, apartment, apartment_type, resident_name, phone)
+                            VALUES (?, ?, ?, ?, ?)
+                        """,
+                (bld, apt, apt_type, name, phone),
+            )
+        conn.commit()
+        conn.close()
+    except Exception:
+      pass
 
 
-@st.cache_resource
-def get_ocr_reader():
-  return easyocr.Reader(["ar", "en"], gpu=False)
-
-
+# ----------------- تهيئة قواعد البيانات -----------------
 def init_db():
   conn = sqlite3.connect(DB_FILE)
   c = conn.cursor()
@@ -242,72 +338,16 @@ def init_db():
   conn.commit()
   conn.close()
 
+  # مزامنة وقراءة البيانات فوراً من ملف fm6.xlsx الموجود في المستودع
+  auto_load_fm6_from_repo()
+
 
 init_db()
 
 
-# ----------------- التحميل التلقائي لدليل الشقق fm6.xlsx -----------------
-def auto_load_fm6():
-  """تحميل دليل الشقق تلقائياً من المستودع إذا وُجد الملف"""
-  if os.path.exists("fm6.xlsx"):
-    try:
-      df = pd.read_excel("fm6.xlsx")
-      first_row_vals = [str(v).lower().strip() for v in df.iloc[0].values]
-      if any(
-          x in first_row_vals
-          for x in ["apartment", "شقة", "immeuble", "building"]
-      ):
-        df.columns = df.iloc[0]
-        df = df[1:].reset_index(drop=True)
-
-      col_map = {}
-      for col in df.columns:
-        c_lower = str(col).lower().strip()
-        if any(k in c_lower for k in ["apt", "apartment", "شقة", "شقه"]):
-          col_map[col] = "apartment"
-        elif any(
-            k in c_lower for k in ["bld", "building", "عمارة", "عماره", "imm"]
-        ):
-          col_map[col] = "building"
-        elif any(
-            k in c_lower
-            for k in [
-                "type",
-                "نوع",
-                "صنف",
-                "f2",
-                "f3",
-                "f4",
-                "typologie",
-                "modèle",
-            ]
-        ):
-          col_map[col] = "apartment_type"
-        elif any(
-            k in c_lower
-            for k in ["name", "resident", "nom", "اسم", "قاطن", "ساكن"]
-        ):
-          col_map[col] = "resident_name"
-        elif any(k in c_lower for k in ["phone", "tel", "هاتف", "جوال", "نقال"]):
-          col_map[col] = "phone"
-
-      df = df.rename(columns=col_map)
-      df = df.loc[:, ~df.columns.duplicated()]
-
-      if "apartment" in df.columns and "building" in df.columns:
-        for _, row in df.iterrows():
-          apt = clean_str(row.get("apartment", ""))
-          bld = clean_str(row.get("building", ""))
-          apt_type = clean_str(row.get("apartment_type", ""))
-          name = clean_str(row.get("resident_name", ""))
-          phone = clean_str(row.get("phone", ""))
-          if apt and bld:
-            add_or_update_apartment_dir(bld, apt, apt_type, name, phone)
-    except Exception:
-      pass
-
-
-auto_load_fm6()
+@st.cache_resource
+def get_ocr_reader():
+  return easyocr.Reader(["ar", "en"], gpu=False)
 
 
 def get_all_records():
@@ -388,26 +428,6 @@ def get_apartment_info(bld_num, apt_num):
         "phone": format_moroccan_phone(res[3]),
     }
   return None
-
-
-def add_or_update_apartment_dir(bld, apt, apt_type, name, phone):
-  conn = sqlite3.connect(DB_FILE)
-  c = conn.cursor()
-  c.execute(
-      """
-        INSERT OR REPLACE INTO apartments_directory (building, apartment, apartment_type, resident_name, phone)
-        VALUES (?, ?, ?, ?, ?)
-    """,
-      (
-          clean_str(bld),
-          clean_str(apt),
-          clean_str(apt_type),
-          clean_str(name),
-          format_moroccan_phone(phone),
-      ),
-  )
-  conn.commit()
-  conn.close()
 
 
 def add_record(
@@ -1034,7 +1054,7 @@ if st.session_state.active_tab == "camera":
               st.session_state["cam_apt_type_select"] = data["apartment_type"]
               st.rerun()
             else:
-              st.warning("⚠️ لم يتم العثور على شقة بهذه البيانات.")
+              st.warning("⚠️ لم يتم العثور على شقة بهذه البيانات في fm6.xlsx.")
 
         c_t1, c_t2 = st.columns(2)
         with c_t1:
@@ -1153,7 +1173,7 @@ elif st.session_state.active_tab == "search":
           " والسكان."
       )
 
-# ==================== 3. قسم التسجيل اليدوي (مع إصلاح زر الجلب المباشر) ====================
+# ==================== 3. قسم التسجيل اليدوي (مع زر الجلب المباشر) ====================
 elif st.session_state.active_tab == "add":
   st.subheader("➕ تسجيل سيارة يدوياً")
 
@@ -1193,7 +1213,7 @@ elif st.session_state.active_tab == "add":
         st.session_state["manual_apt_type_select"] = m_data["apartment_type"]
         st.rerun()
       else:
-        st.warning("⚠️ لم يتم العثور على شقة بهذه الأرقام في دليل السكان.")
+        st.warning("⚠️ لم يتم العثور على شقة بهذه الأرقام في ملف fm6.xlsx.")
 
   c_ma1, c_ma2 = st.columns(2)
   with c_ma1:
@@ -1252,7 +1272,7 @@ elif st.session_state.active_tab == "add":
     else:
       st.error("أدخل رقم اللوحة على الأقل.")
 
-# ==================== 4. قسم الإدارة وتحديث دليل الشقق ====================
+# ==================== 4. قسم الإدارة ====================
 elif st.session_state.active_tab == "admin":
   st.subheader("🔒 إدارة المنظومة ودليل الشقق")
 
@@ -1285,7 +1305,7 @@ elif st.session_state.active_tab == "admin":
     df = get_all_records()
 
     st.markdown("---")
-    st.subheader("🏢 دليل الشقق والسكان (fm6)")
+    st.subheader("🏢 حالة دليل الشقق والسكان (fm6.xlsx)")
 
     conn = sqlite3.connect(DB_FILE)
     apt_count = conn.cursor().execute("SELECT COUNT(*) FROM apartments_directory").fetchone()[0]
@@ -1293,83 +1313,14 @@ elif st.session_state.active_tab == "admin":
 
     if apt_count > 0:
       st.success(
-          f"✅ دليل الشقق والسكان مفعل ومحمل تلقائياً: **{apt_count} شقة**"
-          " مسجلة بنجاح."
+          f"✅ تم تحميل دليل الشقق بنجاح من ملف GitHub (fm6.xlsx): **{apt_count}"
+          " شقة** مسجلة وجاهزة للربط الفوري."
       )
     else:
-      st.warning(
-          "لم يتم العثور على ملف fm6.xlsx في المستودع. يمكنك رفعه يدوياً هنا:"
+      st.error(
+          "⚠️ لم يتم العثور على ملف `fm6.xlsx` داخل المستودع. تأكد من رفعه إلى"
+          " GitHub بجانب app.py بنفس الاسم."
       )
-
-    with st.expander("📤 رفع يدوي إضافي لملف الشقق (Excel)"):
-      uploaded_dir = st.file_uploader(
-          "اختر ملف Excel إضافي للشقق", type=["xlsx", "xls"]
-      )
-      if uploaded_dir is not None:
-        try:
-          dir_df = pd.read_excel(uploaded_dir)
-          first_row_vals = [
-              str(v).lower().strip() for v in dir_df.iloc[0].values
-          ]
-          if any(
-              x in first_row_vals
-              for x in ["apartment", "شقة", "immeuble", "building"]
-          ):
-            dir_df.columns = dir_df.iloc[0]
-            dir_df = dir_df[1:].reset_index(drop=True)
-
-          col_map = {}
-          for col in dir_df.columns:
-            c_lower = str(col).lower().strip()
-            if any(k in c_lower for k in ["apt", "apartment", "شقة", "شقه"]):
-              col_map[col] = "apartment"
-            elif any(
-                k in c_lower
-                for k in ["bld", "building", "عمارة", "عماره", "imm"]
-            ):
-              col_map[col] = "building"
-            elif any(
-                k in c_lower
-                for k in [
-                    "type",
-                    "نوع",
-                    "صنف",
-                    "f2",
-                    "f3",
-                    "f4",
-                    "typologie",
-                    "modèle",
-                ]
-            ):
-              col_map[col] = "apartment_type"
-            elif any(
-                k in c_lower
-                for k in ["name", "resident", "nom", "اسم", "قاطن", "ساكن"]
-            ):
-              col_map[col] = "resident_name"
-            elif any(
-                k in c_lower for k in ["phone", "tel", "هاتف", "جوال", "نقال"]
-            ):
-              col_map[col] = "phone"
-
-          dir_df = dir_df.rename(columns=col_map)
-          dir_df = dir_df.loc[:, ~dir_df.columns.duplicated()]
-
-          if "apartment" in dir_df.columns and "building" in dir_df.columns:
-            added_count = 0
-            for _, row in dir_df.iterrows():
-              apt = clean_str(row.get("apartment", ""))
-              bld = clean_str(row.get("building", ""))
-              apt_type = clean_str(row.get("apartment_type", ""))
-              name = clean_str(row.get("resident_name", ""))
-              phone = clean_str(row.get("phone", ""))
-              if apt and bld:
-                add_or_update_apartment_dir(bld, apt, apt_type, name, phone)
-                added_count += 1
-            st.success(f"🎉 تم تسجيل وتحديث ({added_count}) شقة بنجاح!")
-            st.rerun()
-        except Exception as e:
-          st.error(f"حدث خطأ أثناء معالجة الملف: {e}")
 
     if not df.empty:
       st.markdown("---")
