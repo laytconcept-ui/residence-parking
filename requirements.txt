@@ -4,4 +4,3 @@ opencv-python-headless
 pandas
 openpyxl
 pillow
-st-gsheets-connection
