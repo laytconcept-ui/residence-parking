@@ -256,10 +256,12 @@ def get_db_engine():
 
     return create_engine(
         db_url,
-        connect_args={"sslmode": "require"},
+        connect_args={
+            "sslmode": "require",
+            "connect_timeout": 15
+        },
         pool_pre_ping=True,
-        pool_size=5,
-        max_overflow=10
+        pool_recycle=300
     )
 
 engine = get_db_engine()
