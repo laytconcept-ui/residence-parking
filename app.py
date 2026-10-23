@@ -8,7 +8,10 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 import streamlit as st
-from st_gsheets_connection import GSheetsConnection
+try:
+  from st_gsheets_connection import GSheetsConnection
+except ImportError:
+  from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(
     page_title="تدبير موقف سيارات إقامة نفيس",
