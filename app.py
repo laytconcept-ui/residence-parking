@@ -245,7 +245,6 @@ def get_db_engine():
     if not db_url:
         db_url = os.environ.get("DATABASE_URL", "")
 
-    # توجيه المشغل صراحة لتفادي تعارض الإصدارات
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql+psycopg2://", 1)
     elif db_url.startswith("postgresql://") and not db_url.startswith("postgresql+psycopg2://"):
@@ -254,7 +253,14 @@ def get_db_engine():
     if not db_url:
         st.error("⚠️ لم يتم العثور على DATABASE_URL في Streamlit Secrets!")
         st.stop()
-    return create_engine(db_url, pool_pre_ping=True, pool_size=5, max_overflow=10)
+
+    return create_engine(
+        db_url,
+        connect_args={"sslmode": "require"},
+        pool_pre_ping=True,
+        pool_size=5,
+        max_overflow=10
+    )
 
 engine = get_db_engine()
 
