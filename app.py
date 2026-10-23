@@ -65,6 +65,21 @@ def clean_str(val):
   return s
 
 
+def clean_apt_type(val):
+  s = clean_str(val).upper().replace(" ", "")
+  if s in ["F2", "F3", "F4", "F5"]:
+    return s
+  if "F2" in s:
+    return "F2"
+  if "F3" in s:
+    return "F3"
+  if "F4" in s:
+    return "F4"
+  if "F5" in s:
+    return "F5"
+  return s if s else ""
+
+
 def format_moroccan_phone(phone_val):
   p = clean_str(phone_val).replace(" ", "").replace("-", "")
   if not p:
@@ -206,7 +221,7 @@ st.markdown(
 )
 
 
-# ----------------- تحميل دليل الشقق fm6.xlsx تلقائياً -----------------
+# ----------------- دالة تحميل دليل الشقق من ملف fm6.xlsx مباشرة -----------------
 def auto_load_fm6_from_repo():
   excel_file = None
   for fname in ["fm6.xlsx", "FM6.xlsx", "fm6.xls"]:
@@ -237,13 +252,11 @@ def auto_load_fm6_from_repo():
         elif any(
             k in c_lower
             for k in [
+                "apartment_type",
+                "typologie",
                 "type",
                 "نوع",
                 "صنف",
-                "f2",
-                "f3",
-                "f4",
-                "typologie",
                 "modèle",
             ]
         ):
@@ -265,7 +278,7 @@ def auto_load_fm6_from_repo():
         for _, row in df.iterrows():
           apt = clean_str(row.get("apartment", ""))
           bld = clean_str(row.get("building", ""))
-          apt_type = clean_str(row.get("apartment_type", ""))
+          apt_type = clean_apt_type(row.get("apartment_type", ""))
           name = clean_str(row.get("resident_name", ""))
           phone = format_moroccan_phone(row.get("phone", ""))
           if apt and bld:
@@ -308,7 +321,7 @@ def auto_load_cars_from_repo():
           if p_num:
             bld = clean_str(row.get("building", ""))
             apt = clean_str(row.get("apartment", ""))
-            apt_t = clean_str(row.get("apartment_type", ""))
+            apt_t = clean_apt_type(row.get("apartment_type", ""))
             name = clean_str(row.get("resident_name", ""))
             phone = format_moroccan_phone(row.get("phone", ""))
             p_let = str(row.get("plate_letter", ""))
@@ -490,7 +503,7 @@ def get_apartment_info(bld_num, apt_num):
   if res:
     return {
         "building": clean_str(res[0]),
-        "apartment_type": clean_str(res[1]),
+        "apartment_type": clean_apt_type(res[1]),
         "resident_name": clean_str(res[2]),
         "phone": format_moroccan_phone(res[3]),
     }
@@ -514,7 +527,7 @@ def add_record(
   now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
   building = clean_str(building)
   apartment = clean_str(apartment)
-  apartment_type = clean_str(apartment_type)
+  apartment_type = clean_apt_type(apartment_type)
   plate_num = clean_str(plate_num)
   plate_reg = clean_str(plate_reg)
   phone = format_moroccan_phone(phone)
@@ -563,7 +576,7 @@ def update_full_record(
 ):
   building = clean_str(building)
   apartment = clean_str(apartment)
-  apartment_type = clean_str(apartment_type)
+  apartment_type = clean_apt_type(apartment_type)
   plate_num = clean_str(plate_num)
   plate_reg = clean_str(plate_reg)
   phone = format_moroccan_phone(phone)
@@ -750,7 +763,7 @@ def render_car_card(row, allow_edit=True):
   p_reg = clean_str(row.get("plate_region", ""))
   bld = clean_str(row.get("building", ""))
   apt = clean_str(row.get("apartment", ""))
-  apt_type = clean_str(row.get("apartment_type", ""))
+  apt_type = clean_apt_type(row.get("apartment_type", ""))
   c_type = clean_str(row.get("car_type", "مالك"))
   clean_phone = clean_str(row.get("phone", ""))
   rec_id = int(row["id"])
@@ -839,7 +852,7 @@ def render_car_card(row, allow_edit=True):
               key=f"card_apt_{rec_id}",
           )
         with col_e3:
-          curr_apt_type = clean_str(row.get("apartment_type", ""))
+          curr_apt_type = clean_apt_type(row.get("apartment_type", ""))
           type_idx = (
               apt_types_list.index(curr_apt_type)
               if curr_apt_type in apt_types_list
@@ -925,7 +938,7 @@ def render_car_card(row, allow_edit=True):
 def render_directory_card(row):
   bld = clean_str(row.get("building", ""))
   apt = clean_str(row.get("apartment", ""))
-  apt_type = clean_str(row.get("apartment_type", ""))
+  apt_type = clean_apt_type(row.get("apartment_type", ""))
   name = clean_str(row.get("resident_name", ""))
   phone = clean_str(row.get("phone", ""))
 
@@ -1098,8 +1111,8 @@ if st.session_state.active_tab == "camera":
           st.session_state["cam_name_input"] = ""
         if "cam_phone_input" not in st.session_state:
           st.session_state["cam_phone_input"] = ""
-        if "cam_apt_type_select" not in st.session_state:
-          st.session_state["cam_apt_type_select"] = ""
+        if "cam_apt_type_val" not in st.session_state:
+          st.session_state["cam_apt_type_val"] = ""
 
         col_bld_in, col_apt_in, col_fetch_btn = st.columns([1.5, 1.5, 1])
         with col_bld_in:
@@ -1118,14 +1131,14 @@ if st.session_state.active_tab == "camera":
             if data:
               st.session_state["cam_name_input"] = data["resident_name"]
               st.session_state["cam_phone_input"] = data["phone"]
-              st.session_state["cam_apt_type_select"] = data["apartment_type"]
+              st.session_state["cam_apt_type_val"] = data["apartment_type"]
               st.rerun()
             else:
               st.warning("⚠️ لم يتم العثور على شقة بهذه البيانات في fm6.xlsx.")
 
         c_t1, c_t2 = st.columns(2)
         with c_t1:
-          curr_t = st.session_state.get("cam_apt_type_select", "")
+          curr_t = st.session_state.get("cam_apt_type_val", "")
           idx_type = (
               apt_types_list.index(curr_t) if curr_t in apt_types_list else 0
           )
@@ -1133,15 +1146,19 @@ if st.session_state.active_tab == "camera":
               "نوع الشقة (F2, F3, ...):",
               apt_types_list,
               index=idx_type,
-              key="cam_apt_type_select",
+              key=f"cam_apttype_box_{curr_t}",
           )
         with c_t2:
           name = st.text_input(
-              "اسم الساكن", placeholder="الاسم الكامل", key="cam_name_input"
+              "اسم الساكن",
+              value=st.session_state.get("cam_name_input", ""),
+              key="cam_name_field",
           )
 
         phone = st.text_input(
-            "رقم الهاتف", placeholder="06XXXXXXXX", key="cam_phone_input"
+            "رقم الهاتف",
+            value=st.session_state.get("cam_phone_input", ""),
+            key="cam_phone_field",
         )
         car_desc = st.text_input("نوع ولون السيارة (اختياري)", key="cam_desc_in")
 
@@ -1170,7 +1187,7 @@ if st.session_state.active_tab == "camera":
             )
             st.session_state["cam_name_input"] = ""
             st.session_state["cam_phone_input"] = ""
-            st.session_state["cam_apt_type_select"] = ""
+            st.session_state["cam_apt_type_val"] = ""
             st.success("تم الحفظ بنجاح!")
             st.rerun()
           else:
@@ -1240,7 +1257,7 @@ elif st.session_state.active_tab == "search":
           " والسكان."
       )
 
-# ==================== 3. قسم التسجيل اليدوي (مع زر الجلب المباشر) ====================
+# ==================== 3. قسم التسجيل اليدوي (مع إصلاح جلب نوع الشقة) ====================
 elif st.session_state.active_tab == "add":
   st.subheader("➕ تسجيل سيارة يدوياً")
 
@@ -1248,8 +1265,8 @@ elif st.session_state.active_tab == "add":
     st.session_state["manual_name_input"] = ""
   if "manual_phone_input" not in st.session_state:
     st.session_state["manual_phone_input"] = ""
-  if "manual_apt_type_select" not in st.session_state:
-    st.session_state["manual_apt_type_select"] = ""
+  if "manual_apt_type_val" not in st.session_state:
+    st.session_state["manual_apt_type_val"] = ""
 
   c1, c2, c3 = st.columns([2, 1, 1])
   with c1:
@@ -1277,14 +1294,14 @@ elif st.session_state.active_tab == "add":
       if m_data:
         st.session_state["manual_name_input"] = m_data["resident_name"]
         st.session_state["manual_phone_input"] = m_data["phone"]
-        st.session_state["manual_apt_type_select"] = m_data["apartment_type"]
+        st.session_state["manual_apt_type_val"] = m_data["apartment_type"]
         st.rerun()
       else:
         st.warning("⚠️ لم يتم العثور على شقة بهذه الأرقام في ملف fm6.xlsx.")
 
   c_ma1, c_ma2 = st.columns(2)
   with c_ma1:
-    curr_m_type = st.session_state.get("manual_apt_type_select", "")
+    curr_m_type = st.session_state.get("manual_apt_type_val", "")
     m_type_idx = (
         apt_types_list.index(curr_m_type)
         if curr_m_type in apt_types_list
@@ -1294,15 +1311,19 @@ elif st.session_state.active_tab == "add":
         "نوع الشقة:",
         apt_types_list,
         index=m_type_idx,
-        key="manual_apt_type_select",
+        key=f"manual_apttype_box_{curr_m_type}",
     )
   with c_ma2:
     name = st.text_input(
-        "اسم الساكن", placeholder="الاسم الكامل", key="manual_name_input"
+        "اسم الساكن",
+        value=st.session_state.get("manual_name_input", ""),
+        key="m_name_field",
     )
 
   phone = st.text_input(
-      "رقم الهاتف", placeholder="06XXXXXXXX", key="manual_phone_input"
+      "رقم الهاتف",
+      value=st.session_state.get("manual_phone_input", ""),
+      key="m_phone_field",
   )
   car_desc = st.text_input(
       "نوع ولون السيارة", placeholder="مثال: داسيا بيضاء", key="m_car_desc"
@@ -1333,7 +1354,7 @@ elif st.session_state.active_tab == "add":
         )
         st.session_state["manual_name_input"] = ""
         st.session_state["manual_phone_input"] = ""
-        st.session_state["manual_apt_type_select"] = ""
+        st.session_state["manual_apt_type_val"] = ""
         st.success("تم الحفظ بنجاح!")
         st.rerun()
     else:
@@ -1486,7 +1507,9 @@ elif st.session_state.active_tab == "admin":
                     key=f"adm_apt_{selected_car_id}",
                 )
               with c3:
-                curr_type_db = clean_str(row_sel.get("apartment_type", ""))
+                curr_type_db = clean_apt_type(
+                    row_sel.get("apartment_type", "")
+                )
                 idx_t_db = (
                     apt_types_list.index(curr_type_db)
                     if curr_type_db in apt_types_list
@@ -1607,7 +1630,7 @@ elif st.session_state.active_tab == "admin":
             add_record(
                 clean_str(row.get("building", "")),
                 clean_str(row.get("apartment", "")),
-                clean_str(row.get("apartment_type", "")),
+                clean_apt_type(row.get("apartment_type", "")),
                 clean_str(row.get("resident_name", "")),
                 clean_str(row.get("phone", "")),
                 p_num,
