@@ -244,8 +244,13 @@ def get_db_engine():
     db_url = st.secrets.get("DATABASE_URL", "")
     if not db_url:
         db_url = os.environ.get("DATABASE_URL", "")
+
+    # توجيه المشغل صراحة لتفادي تعارض الإصدارات
     if db_url.startswith("postgres://"):
-        db_url = db_url.replace("postgres://", "postgresql://", 1)
+        db_url = db_url.replace("postgres://", "postgresql+psycopg2://", 1)
+    elif db_url.startswith("postgresql://") and not db_url.startswith("postgresql+psycopg2://"):
+        db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+
     if not db_url:
         st.error("⚠️ لم يتم العثور على DATABASE_URL في Streamlit Secrets!")
         st.stop()
@@ -960,7 +965,7 @@ elif st.session_state.active_tab == "admin":
 
     if st.session_state.admin_authenticated:
         st.success("🔓 تم الدخول كمسؤول للمنظومة.")
-        
+
         df_dir_check = load_fm6_directory()
         st.info(f"🏢 دليل الشقق المحمل من المستودع (fm6.xlsx): **{len(df_dir_check)} شقة** جاهزة للربط الفوري.")
 
@@ -968,7 +973,7 @@ elif st.session_state.active_tab == "admin":
 
         col_stat1, col_stat2 = st.columns(2)
         with col_stat1:
-            st.success(f"☁️ قاعدة البيانات السحابية (Supabase): **متصلة بنجاح**.")
+            st.success("☁️ قاعدة البيانات السحابية (Supabase): **متصلة بنجاح**.")
         with col_stat2:
             st.info(f"🚗 سيارات الموقف المحفوظة سحابياً: **{len(df)} سيارة**.")
 
