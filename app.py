@@ -245,14 +245,14 @@ def get_db_engine():
     if not db_url:
         db_url = os.environ.get("DATABASE_URL", "")
 
+    if not db_url:
+        st.error("⚠️ لم يتم العثور على DATABASE_URL في Streamlit Secrets!")
+        st.stop()
+
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql+psycopg2://", 1)
     elif db_url.startswith("postgresql://") and not db_url.startswith("postgresql+psycopg2://"):
         db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
-
-    if not db_url:
-        st.error("⚠️ لم يتم العثور على DATABASE_URL في Streamlit Secrets!")
-        st.stop()
 
     return create_engine(
         db_url,
@@ -264,7 +264,11 @@ def get_db_engine():
         pool_recycle=300
     )
 
-engine = get_db_engine()
+try:
+    engine = get_db_engine()
+except Exception as e:
+    st.error(f"❌ خطأ في تكوين رابط الاتصال: {e}")
+    st.stop()
 
 # ----------------- قراءة دليل الشقق fm6.xlsx -----------------
 @st.cache_data
@@ -316,39 +320,44 @@ def load_fm6_directory():
 
 # ----------------- تهيئة جدول Supabase وحقن البيانات المسبقة -----------------
 def init_supabase():
-    with engine.begin() as conn:
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS residents_cars (
-                id SERIAL PRIMARY KEY,
-                building VARCHAR(50),
-                apartment VARCHAR(50),
-                apartment_type VARCHAR(50),
-                resident_name VARCHAR(255),
-                phone VARCHAR(50),
-                plate_number VARCHAR(50) NOT NULL,
-                plate_letter VARCHAR(50),
-                plate_region VARCHAR(50),
-                full_plate VARCHAR(100),
-                car_type VARCHAR(50) DEFAULT 'مالك',
-                car_info VARCHAR(255),
-                created_at VARCHAR(100),
-                notes TEXT
-            );
-        """))
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS residents_cars (
+                    id SERIAL PRIMARY KEY,
+                    building VARCHAR(50),
+                    apartment VARCHAR(50),
+                    apartment_type VARCHAR(50),
+                    resident_name VARCHAR(255),
+                    phone VARCHAR(50),
+                    plate_number VARCHAR(50) NOT NULL,
+                    plate_letter VARCHAR(50),
+                    plate_region VARCHAR(50),
+                    full_plate VARCHAR(100),
+                    car_type VARCHAR(50) DEFAULT 'مالك',
+                    car_info VARCHAR(255),
+                    created_at VARCHAR(100),
+                    notes TEXT
+                );
+            """))
 
-        res = conn.execute(text("SELECT COUNT(*) FROM residents_cars")).scalar()
-        if res == 0:
-            for item in INITIAL_CARS_BACKUP:
-                _, bld, apt, apt_t, name, phone, p_num, p_let, p_reg, p_full, c_type, c_info, c_at, notes = item
-                conn.execute(text("""
-                    INSERT INTO residents_cars 
-                    (building, apartment, apartment_type, resident_name, phone, plate_number, plate_letter, plate_region, full_plate, car_type, car_info, created_at, notes)
-                    VALUES (:bld, :apt, :apt_t, :name, :phone, :p_num, :p_let, :p_reg, :p_full, :c_type, :c_info, :c_at, :notes)
-                """), {
-                    "bld": bld, "apt": apt, "apt_t": apt_t, "name": name, "phone": phone,
-                    "p_num": p_num, "p_let": p_let, "p_reg": p_reg, "p_full": p_full,
-                    "c_type": c_type, "c_info": c_info, "c_at": c_at, "notes": notes
-                })
+            res = conn.execute(text("SELECT COUNT(*) FROM residents_cars")).scalar()
+            if res == 0:
+                for item in INITIAL_CARS_BACKUP:
+                    _, bld, apt, apt_t, name, phone, p_num, p_let, p_reg, p_full, c_type, c_info, c_at, notes = item
+                    conn.execute(text("""
+                        INSERT INTO residents_cars 
+                        (building, apartment, apartment_type, resident_name, phone, plate_number, plate_letter, plate_region, full_plate, car_type, car_info, created_at, notes)
+                        VALUES (:bld, :apt, :apt_t, :name, :phone, :p_num, :p_let, :p_reg, :p_full, :c_type, :c_info, :c_at, :notes)
+                    """), {
+                        "bld": bld, "apt": apt, "apt_t": apt_t, "name": name, "phone": phone,
+                        "p_num": p_num, "p_let": p_let, "p_reg": p_reg, "p_full": p_full,
+                        "c_type": c_type, "c_info": c_info, "c_at": c_at, "notes": notes
+                    })
+    except Exception as e:
+        st.error("🚨 فشل الاتصال بقاعدة بيانات Supabase، فيما يلي تفاصيل الخطأ المباشرة:")
+        st.code(str(e))
+        st.stop()
 
 init_supabase()
 
@@ -359,13 +368,17 @@ def get_ocr_reader():
 
 
 def get_all_records():
-    with engine.connect() as conn:
-        df = pd.read_sql(text("SELECT * FROM residents_cars ORDER BY id DESC"), conn)
-    for col in df.columns:
-        df[col] = df[col].apply(clean_str)
-    if "phone" in df.columns:
-        df["phone"] = df["phone"].apply(format_moroccan_phone)
-    return df
+    try:
+        with engine.connect() as conn:
+            df = pd.read_sql(text("SELECT * FROM residents_cars ORDER BY id DESC"), conn)
+        for col in df.columns:
+            df[col] = df[col].apply(clean_str)
+        if "phone" in df.columns:
+            df["phone"] = df["phone"].apply(format_moroccan_phone)
+        return df
+    except Exception as e:
+        st.error(f"خطأ أثناء قراءة السجلات: {e}")
+        return pd.DataFrame()
 
 
 def get_apartment_info(bld_num, apt_num):
