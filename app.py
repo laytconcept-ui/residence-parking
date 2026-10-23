@@ -107,6 +107,63 @@ def format_moroccan_phone(phone_val):
     return p
 
 
+# ----------------- معالجة صور اللوحات -----------------
+def clean_image_for_ocr(img_np):
+    gray = cv2.cvtColor(img_np, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    thresh = cv2.adaptiveThreshold(
+        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+    )
+    return thresh
+
+
+def detect_and_crop_license_plate(image_np):
+    h, w = image_np.shape[:2]
+    gray = cv2.cvtColor(image_np, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    edged = cv2.Canny(blurred, 50, 200)
+
+    contours, _ = cv2.findContours(edged, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    contours = sorted(contours, key=cv2.contourArea, reverse=True)[:10]
+
+    for c in contours:
+        x, y, cw, ch = cv2.boundingRect(c)
+        aspect_ratio = float(cw) / float(ch) if ch > 0 else 0
+        if 2.0 <= aspect_ratio <= 6.5 and cw > (w * 0.25) and ch > (h * 0.08):
+            pad_x = int(cw * 0.05)
+            pad_y = int(ch * 0.05)
+            x1 = max(0, x - pad_x)
+            y1 = max(0, y - pad_y)
+            x2 = min(w, x + cw + pad_x)
+            y2 = min(h, y + ch + pad_y)
+            return image_np[y1:y2, x1:x2], True
+
+    return image_np, False
+
+
+def parse_moroccan_plate(results):
+    all_text = " ".join([r[1] for r in results]).strip()
+    digits = re.findall(r"\d+", all_text)
+    
+    main_num = ""
+    region_num = ""
+    detected_let = ""
+
+    for item in letters_list:
+        if item and item in all_text:
+            detected_let = item
+            break
+
+    if digits:
+        main_num = max(digits, key=len)
+        remaining = [d for d in digits if d != main_num]
+        if remaining:
+            region_num = remaining[0]
+
+    full_display = f"{main_num} | {detected_let if detected_let else '-'} | {region_num}"
+    return main_num, detected_let, region_num, full_display
+
+
 # ----------------- تصميم واجهة التطبيق (CSS) -----------------
 st.markdown(
     """
@@ -267,7 +324,7 @@ def get_db_engine():
 try:
     engine = get_db_engine()
 except Exception as e:
-    st.error(f"❌ خطأ في تكوين رابط الاتصال: {e}")
+    st.error(f"❌ خطأ في تكوين محرك قاعدة البيانات: {e}")
     st.stop()
 
 # ----------------- قراءة دليل الشقق fm6.xlsx -----------------
@@ -355,7 +412,7 @@ def init_supabase():
                         "c_type": c_type, "c_info": c_info, "c_at": c_at, "notes": notes
                     })
     except Exception as e:
-        st.error("🚨 فشل الاتصال بقاعدة بيانات Supabase، فيما يلي تفاصيل الخطأ المباشرة:")
+        st.error("🚨 تعذر الاتصال بقاعدة بيانات Supabase، فيما يلي التفاصيل المباشرة للخطأ:")
         st.code(str(e))
         st.stop()
 
