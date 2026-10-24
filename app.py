@@ -455,7 +455,7 @@ def get_ocr_reader():
     return easyocr.Reader(["ar", "en"], gpu=False)
 
 
-# ----------------- تصميم CSS المطور: إخفاء الإنجليزية وإبراز خانات الكتابة -----------------
+# ----------------- تصميم CSS المطور -----------------
 st.markdown(
     """
 <style>
@@ -500,7 +500,7 @@ st.markdown(
         gap: 6px;
     }
 
-    /* إبراز خانات الإدخال والكتابة بوضوح تام بلون أبيض ناصع مع حدود زرقاء بارزة */
+    /* إبراز خانات الإدخال والكتابة */
     div[data-baseweb="input"], .stTextInput > div > div > input {
         background-color: #ffffff !important;
         border: 2px solid #3b82f6 !important;
@@ -511,7 +511,6 @@ st.markdown(
         box-shadow: 0 2px 5px rgba(59, 130, 246, 0.08) !important;
     }
 
-    /* تمييز خانة الكتابة أثناء الوقوف عليها */
     .stTextInput > div > div > input:focus, 
     div[data-baseweb="input"]:focus-within {
         border-color: #1d4ed8 !important;
@@ -697,6 +696,18 @@ st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
 # ==================== 1. قسم الكاميرا ====================
 if st.session_state.active_tab == "camera":
+    # معالجة تفريغ الحقول قبل إنشاء الـ widgets لمنع الخطأ البرمجي
+    if st.session_state.get("reset_cam_form", False):
+        st.session_state["cam_bld_in"] = ""
+        st.session_state["cam_apt_in"] = ""
+        st.session_state["cam_desc_in"] = ""
+        st.session_state["cam_pnum"] = ""
+        st.session_state["cam_preg"] = ""
+        st.session_state["cam_name_widget"] = ""
+        st.session_state["cam_phone_widget"] = ""
+        st.session_state["cam_apttype_widget"] = apt_types_list[0]
+        st.session_state["reset_cam_form"] = False
+
     st.subheader("📷 التقاط لوحة السيارة")
     camera_file = st.camera_input("")
 
@@ -792,9 +803,7 @@ if st.session_state.active_tab == "camera":
                             car_desc,
                             "",
                         )
-                        st.session_state["cam_name_widget"] = ""
-                        st.session_state["cam_phone_widget"] = ""
-                        st.session_state["cam_apttype_widget"] = ""
+                        st.session_state["reset_cam_form"] = True
                         st.success("✅ تم حفظ السيارة بنجاح في ملف residence.xlsx!")
                         st.rerun()
                     else:
@@ -806,7 +815,6 @@ if st.session_state.active_tab == "camera":
 elif st.session_state.active_tab == "search":
     st.subheader("🔍 استعلام وبحث فوري شامل")
     
-    # ميزة الجلب السريع بمعطيات الشقة والعمارة
     with st.expander("🏢 استعلام مباشر وسريع برقم العمارة والشقة (جلب ⚡)", expanded=True):
         col_sbld, col_sapt, col_sbtn = st.columns([1.5, 1.5, 1])
         with col_sbld:
@@ -906,6 +914,18 @@ elif st.session_state.active_tab == "search":
 
 # ==================== 3. قسم التسجيل اليدوي ====================
 elif st.session_state.active_tab == "add":
+    # معالجة تفريغ الحقول قبل إنشاء الـ widgets لمنع الخطأ البرمجي
+    if st.session_state.get("reset_manual_form", False):
+        st.session_state["m_p_num"] = ""
+        st.session_state["m_p_reg"] = ""
+        st.session_state["m_bld_in"] = ""
+        st.session_state["m_apt_in"] = ""
+        st.session_state["m_car_desc"] = ""
+        st.session_state["manual_name_widget"] = ""
+        st.session_state["manual_phone_widget"] = ""
+        st.session_state["manual_apttype_widget"] = apt_types_list[0]
+        st.session_state["reset_manual_form"] = False
+
     st.subheader("➕ تسجيل سيارة يدوياً")
 
     if "manual_name_widget" not in st.session_state:
@@ -913,7 +933,7 @@ elif st.session_state.active_tab == "add":
     if "manual_phone_widget" not in st.session_state:
         st.session_state["manual_phone_widget"] = ""
     if "manual_apttype_widget" not in st.session_state:
-        st.session_state["manual_apttype_widget"] = ""
+        st.session_state["manual_apttype_widget"] = apt_types_list[0]
 
     c1, c2, c3 = st.columns([2, 1, 1])
     with c1:
@@ -987,9 +1007,7 @@ elif st.session_state.active_tab == "add":
                     car_desc,
                     "",
                 )
-                st.session_state["manual_name_widget"] = ""
-                st.session_state["manual_phone_widget"] = ""
-                st.session_state["manual_apttype_widget"] = ""
+                st.session_state["reset_manual_form"] = True
                 st.success("✅ تم حفظ السيارة في ملف residence.xlsx بنجاح!")
                 st.rerun()
         else:
