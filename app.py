@@ -16,7 +16,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ----------------- تثبيت أيقونة السيارة لمتصفح الهاتف -----------------
+# ----------------- تثبيت أيقونة السيارة لمتصفح الهاتف وتنسيق CSS -----------------
 st.markdown(
     """
     <head>
@@ -217,7 +217,7 @@ def delete_record(record_id):
     save_df_to_residence_file()
 
 
-# ----------------- نافذة التعديل والحذف المنبثقة -----------------
+# ----------------- نافذة التعديل والحذف المنبثقة مع أزرار تأكيد -----------------
 @st.dialog("✏️ تعديل بيانات السيارة والساكن أو الحذف")
 def edit_car_dialog(row):
     rec_id = int(row["id"])
@@ -262,7 +262,7 @@ def edit_car_dialog(row):
     btn_col1, btn_col2 = st.columns(2)
 
     with btn_col1:
-        if st.button("💾 حفظ وتحديث في residence.xlsx", type="primary", use_container_width=True, key=f"save_dlg_{rec_id}"):
+        if st.button("✅ تأكيد وحفظ التعديلات", type="primary", use_container_width=True, key=f"save_dlg_{rec_id}"):
             e_p_num = clean_str(dlg_pnum)
             e_p_reg = clean_str(dlg_preg)
             new_full_plate = f"{e_p_num} | {dlg_plet} | {e_p_reg}"
@@ -281,11 +281,11 @@ def edit_car_dialog(row):
                 dlg_car,
                 dlg_notes,
             )
-            st.success("✅ تم تحديث بيانات السيارة بنجاح في ملف residence.xlsx!")
+            st.success("✅ تم تحديث بيانات السيارة بنجاح!")
             st.rerun()
 
     with btn_col2:
-        if st.button("🗑️ حذف هذا السجل نهائياً", use_container_width=True, key=f"del_dlg_{rec_id}"):
+        if st.button("🗑️ تأكيد حذف السجل نهائياً", use_container_width=True, key=f"del_dlg_{rec_id}"):
             delete_record(rec_id)
             st.warning("🗑️ تم حذف السجل نهائياً من ملف residence.xlsx!")
             st.rerun()
@@ -455,19 +455,31 @@ def get_ocr_reader():
     return easyocr.Reader(["ar", "en"], gpu=False)
 
 
-# ----------------- تصميم واجهة التطبيق CSS -----------------
+# ----------------- تصميم CSS المطور: إخفاء الإنجليزية وإبراز خانات الكتابة -----------------
 st.markdown(
     """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap');
+    
     header[data-testid="stHeader"], #MainMenu, footer, .stDeployButton { display: none !important; }
+    
+    /* إخفاء الجمل الإرشادية الإنجليزية نهائياً مثل Press Enter to apply */
+    [data-testid="InputInstructions"], 
+    .stTextInput small, 
+    div[data-testid="InputInstructions"] {
+        display: none !important;
+        visibility: hidden !important;
+        height: 0px !important;
+    }
+
     html, body, [class*="css"], .stApp {
         font-family: 'Cairo', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-        background-color: #f1f5f9;
+        background-color: #f8fafc;
         direction: rtl;
         text-align: right;
     }
     
+    /* توسيط جميع الترويسات والعناوين */
     h1, h2, h3, [data-testid="stHeadingWithActionElements"] h2, .section-header {
         text-align: center !important;
         justify-content: center !important;
@@ -487,7 +499,33 @@ st.markdown(
         text-align: center;
         gap: 6px;
     }
-    
+
+    /* إبراز خانات الإدخال والكتابة بوضوح تام بلون أبيض ناصع مع حدود زرقاء بارزة */
+    div[data-baseweb="input"], .stTextInput > div > div > input {
+        background-color: #ffffff !important;
+        border: 2px solid #3b82f6 !important;
+        border-radius: 12px !important;
+        color: #0f172a !important;
+        font-size: 16px !important;
+        font-weight: 700 !important;
+        box-shadow: 0 2px 5px rgba(59, 130, 246, 0.08) !important;
+    }
+
+    /* تأثير تمييز خانة الكتابة أثناء الوقوف عليها أو الكتابة فيها */
+    .stTextInput > div > div > input:focus, 
+    div[data-baseweb="input"]:focus-within {
+        border-color: #1d4ed8 !important;
+        background-color: #ffffff !important;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25) !important;
+    }
+
+    .stSelectbox div[data-baseweb="select"] {
+        border: 2px solid #3b82f6 !important;
+        border-radius: 12px !important;
+        background-color: #ffffff !important;
+        font-weight: 700 !important;
+    }
+
     .morocco-plate-tag {
         display: inline-flex;
         align-items: center;
@@ -500,11 +538,13 @@ st.markdown(
     }
     .plate-item { font-size: 20px; font-weight: 900; color: #0f172a; }
     .plate-divider { width: 2px; height: 22px; background-color: #cbd5e1; }
+    
     div.stButton > button {
         border-radius: 12px !important;
         padding: 10px 18px !important;
         font-size: 15px !important;
         font-weight: 800 !important;
+        transition: all 0.2s ease !important;
     }
 </style>
 """,
@@ -689,7 +729,7 @@ if st.session_state.active_tab == "camera":
 
                 c_p1, c_p2, c_p3 = st.columns([2, 1, 1])
                 with c_p1:
-                    p_num = st.text_input("الأرقام *", value=main_num, key="cam_pnum")
+                    p_num = st.text_input("أرقام اللوحة *", value=main_num, key="cam_pnum")
                 with c_p2:
                     idx = letters_list.index(detected_let) if detected_let in letters_list else 0
                     p_let = st.selectbox("الحرف", letters_list, index=idx, key="cam_plet")
@@ -733,7 +773,7 @@ if st.session_state.active_tab == "camera":
                 phone = st.text_input("رقم الهاتف", placeholder="06XXXXXXXX", key="cam_phone_widget")
                 car_desc = st.text_input("نوع ولون السيارة (اختياري)", key="cam_desc_in")
 
-                if st.button("💾 حفظ في ملف residence.xlsx", type="primary", use_container_width=True):
+                if st.button("✅ تأكيد حفظ السيارة في residence.xlsx", type="primary", use_container_width=True):
                     if p_num:
                         p_num = clean_str(p_num)
                         p_reg = clean_str(p_reg)
@@ -762,7 +802,7 @@ if st.session_state.active_tab == "camera":
         else:
             st.warning("تعذر قراءة أرقام واضحة، حاول التقاط صورة أقرب للوحة.")
 
-# ==================== 2. قسم الاستعلام الشامل (مع خاصية الجلب المباشر للشقة) ====================
+# ==================== 2. قسم الاستعلام الشامل ====================
 elif st.session_state.active_tab == "search":
     st.subheader("🔍 استعلام وبحث فوري شامل")
     
@@ -776,7 +816,7 @@ elif st.session_state.active_tab == "search":
         with col_sbtn:
             st.write("")
             st.write("")
-            fetch_apt_clicked = st.button("جلب الساكن ⚡", key="btn_fetch_in_search", use_container_width=True)
+            fetch_apt_clicked = st.button("🔍 تأكيد جلب الشقة", key="btn_fetch_in_search", type="primary", use_container_width=True)
 
         if fetch_apt_clicked:
             if search_apt:
@@ -785,7 +825,6 @@ elif st.session_state.active_tab == "search":
                     st.success("🎯 تم جلب بيانات الشقة بنجاح من fm6.xlsx:")
                     render_directory_card(apt_data)
 
-                    # البحث التلقائي عن السيارات المسجلة لنفس الشقة
                     df_all_cars = get_all_records()
                     if not df_all_cars.empty:
                         b_norm = normalize_num(search_bld)
@@ -813,16 +852,16 @@ elif st.session_state.active_tab == "search":
     st.caption("أو ابحث عن أي نص عام (رقم اللوحة، اسم الساكن، الهاتف، العمارة):")
 
     with st.form("search_form"):
-        col_in, col_bt = st.columns([3, 1])
+        col_in, col_bt = st.columns([3.5, 1.2])
         with col_in:
             query = st.text_input(
-                "🔎 اكتب رقم اللوحة، اسم الساكن، رقم العمارة، الشقة، أو الهاتف:",
+                "🔎 اكتب كلمة البحث هنا:",
                 value="",
-                placeholder="",
+                placeholder="اكتب هنا: رقم اللوحة، اسم الساكن، رقم العمارة أو الشقة...",
                 label_visibility="collapsed",
             )
         with col_bt:
-            search_submitted = st.form_submit_button("🔍 ابحث الآن", type="primary", use_container_width=True)
+            search_submitted = st.form_submit_button("🔍 تأكيد البحث", type="primary", use_container_width=True)
 
     if query:
         df_cars = get_all_records()
@@ -866,11 +905,10 @@ elif st.session_state.active_tab == "search":
         if not cars_found and not dir_found:
             st.info("لم يتم العثور على أي تطابق في موقف السيارات ولا في دليل الشقق.")
 
-# ==================== 3. قسم التسجيل اليدوي (مع الجلب الفوري والآني) ====================
+# ==================== 3. قسم التسجيل اليدوي ====================
 elif st.session_state.active_tab == "add":
     st.subheader("➕ تسجيل سيارة يدوياً")
 
-    # تهيئة مفاتيح الـ Widgets في session_state لتحديثها اللحظي عند الضغط على جلب
     if "manual_name_widget" not in st.session_state:
         st.session_state["manual_name_widget"] = ""
     if "manual_phone_widget" not in st.session_state:
@@ -900,7 +938,6 @@ elif st.session_state.active_tab == "add":
         if st.button("جلب ⚡", key="m_fetch_btn", use_container_width=True):
             m_data = get_apartment_info(m_bld, m_apt)
             if m_data:
-                # تحديث قيم الحقول مباشرة في session_state لظهورها اللحظي
                 st.session_state["manual_name_widget"] = m_data["resident_name"]
                 st.session_state["manual_phone_widget"] = m_data["phone"]
                 apt_t = m_data["apartment_type"]
@@ -930,7 +967,7 @@ elif st.session_state.active_tab == "add":
     )
     car_desc = st.text_input("نوع ولون السيارة", placeholder="مثال: داسيا بيضاء", key="m_car_desc")
 
-    if st.button("💾 حفظ في ملف residence.xlsx", type="primary", use_container_width=True):
+    if st.button("✅ تأكيد تسجيل السيارة في residence.xlsx", type="primary", use_container_width=True):
         if p_num:
             p_num = clean_str(p_num)
             p_reg = clean_str(p_reg)
@@ -953,7 +990,6 @@ elif st.session_state.active_tab == "add":
                     car_desc,
                     "",
                 )
-                # تفريغ الحقول بعد الحفظ بنجاح
                 st.session_state["manual_name_widget"] = ""
                 st.session_state["manual_phone_widget"] = ""
                 st.session_state["manual_apttype_widget"] = ""
@@ -962,7 +998,7 @@ elif st.session_state.active_tab == "add":
         else:
             st.error("أدخل رقم اللوحة على الأقل.")
 
-# ==================== 4. قسم الإدارة وتنزيل Excel والتعديل بالنقر ====================
+# ==================== 4. قسم الإدارة وتنزيل Excel ====================
 elif st.session_state.active_tab == "admin":
     st.subheader("🔒 إدارة المنظومة وملف residence.xlsx")
 
@@ -970,16 +1006,14 @@ elif st.session_state.active_tab == "admin":
         st.session_state.admin_authenticated = False
 
     if not st.session_state.admin_authenticated:
-        st.markdown('<div class="highlight-pin-box">', unsafe_allow_html=True)
         with st.form("pin_form"):
             admin_pass = st.text_input(
                 "🔐 أدخل القن السري للوصول للوحة الإدارة:",
                 type="password",
                 value="",
-                placeholder="",
+                placeholder="أدخل القن السري هنا...",
             )
             pin_submit = st.form_submit_button("🔓 تأكيد الدخول", type="primary", use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
 
         if pin_submit:
             if admin_pass == ADMIN_PIN:
@@ -1056,11 +1090,12 @@ elif st.session_state.active_tab == "admin":
         with st.expander("📤 رفع واستبدال ملف residence.xlsx بالكامل يدوياً"):
             uploaded_excel = st.file_uploader("اختر ملف Excel لاستبدال سيارات الموقف", type=["xlsx", "xls"])
             if uploaded_excel is not None:
-                df_up = pd.read_excel(uploaded_excel)
-                for c in ["id", "building", "apartment", "apartment_type", "resident_name", "phone", "plate_number", "plate_letter", "plate_region", "full_plate", "car_type", "car_info", "created_at", "notes"]:
-                    if c not in df_up.columns:
-                        df_up[c] = ""
-                st.session_state.cars_df = df_up
-                save_df_to_residence_file()
-                st.success("✅ تم تحديث وتحميل بيانات ملف residence.xlsx بنجاح!")
-                st.rerun()
+                if st.button("✅ تأكيد استبدال الملف بالكامل", type="primary"):
+                    df_up = pd.read_excel(uploaded_excel)
+                    for c in ["id", "building", "apartment", "apartment_type", "resident_name", "phone", "plate_number", "plate_letter", "plate_region", "full_plate", "car_type", "car_info", "created_at", "notes"]:
+                        if c not in df_up.columns:
+                            df_up[c] = ""
+                    st.session_state.cars_df = df_up
+                    save_df_to_residence_file()
+                    st.success("✅ تم تحديث وتحميل بيانات ملف residence.xlsx بنجاح!")
+                    st.rerun()
