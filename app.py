@@ -382,18 +382,18 @@ def clean_image_for_ocr(image_np):
     else:
         gray = image_np
 
-    # 1. تكبير الصورة لزيادة دقة الفجوات داخل 8 و 0 و 6
+    # تكبير الصورة لزيادة دقة الفجوات داخل 8 و 0 و 6
     h, w = gray.shape[:2]
     scaled = cv2.resize(gray, (w * 2, h * 2), interpolation=cv2.INTER_CUBIC)
 
-    # 2. إزالة التشويش وترددات الشاشات الرقمية
+    # إزالة التشويش وترددات الشاشات الرقمية
     denoised = cv2.fastNlMeansDenoising(scaled, h=10)
 
-    # 3. توضيح التباين الموضعي بدقة (CLAHE)
+    # توضيح التباين الموضعي بدقة (CLAHE)
     clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
     enhanced = clahe.apply(denoised)
 
-    # 4. تحويل الصورة إلى ثنائية نقية (Otsu Thresholding)
+    # تحويل الصورة إلى ثنائية نقية (Otsu Thresholding)
     _, binary = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     
     return binary
@@ -403,11 +403,11 @@ def detect_and_crop_license_plate(image_np):
     try:
         h, w = image_np.shape[:2]
         gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
-        blur = cv2.GaussianBlur(gray, (5, 5), 0)
-        edged = cv2.Canny(blur, 50, 150)
+        blur = cv2.bilateralFilter(gray, 11, 17, 17)
+        edged = cv2.Canny(blur, 30, 200)
 
         contours, _ = cv2.findContours(edged.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        contours = sorted(contours, key=cv2.contourArea, reverse=True)[:25]
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)[:35]
 
         plate_crop = None
         for c in contours:
@@ -415,16 +415,17 @@ def detect_and_crop_license_plate(image_np):
             aspect_ratio = float(cw) / ch if ch > 0 else 0
 
             # المعايير القياسية للوحة الترقيم المغربية
-            if 2.2 <= aspect_ratio <= 6.5 and cw > (w * 0.25) and ch > (h * 0.05):
-                pad_x = int(cw * 0.03)
-                pad_y = int(ch * 0.06)
-                y1 = max(0, y - pad_y)
-                y2 = min(h, y + ch + pad_y)
-                x1 = max(0, x - pad_x)
-                x2 = min(w, x + cw + pad_x)
-
-                plate_crop = image_np[y1:y2, x1:x2]
-                break
+            if 2.2 <= aspect_ratio <= 6.5 and cw > (w * 0.15) and ch > (h * 0.03):
+                roi_gray = gray[y:y+ch, x:x+cw]
+                if np.mean(roi_gray) > 85:
+                    pad_x = int(cw * 0.04)
+                    pad_y = int(ch * 0.08)
+                    y1 = max(0, y - pad_y)
+                    y2 = min(h, y + ch + pad_y)
+                    x1 = max(0, x - pad_x)
+                    x2 = min(w, x + cw + pad_x)
+                    plate_crop = image_np[y1:y2, x1:x2]
+                    break
 
         if plate_crop is not None:
             return plate_crop, True
@@ -436,17 +437,17 @@ def detect_and_crop_license_plate(image_np):
 
 def parse_moroccan_plate(ocr_results):
     arabic_targets = {
-        "أ": ["أ", "ا", "إ", "آ"],
-        "ب": ["ب"],
-        "د": ["د", "ذ"],
-        "هـ": ["هـ", "ه", "ة"],
-        "و": ["و"],
-        "ج": ["ج"],
+        "أ": ["أ", "ا", "إ", "آ", "A"],
+        "ب": ["ب", "B", "b"],
+        "د": ["د", "ذ", "D", "d", "0", "O", "o"],
+        "هـ": ["هـ", "ه", "ة", "H", "E"],
+        "و": ["و", "9"],
+        "ج": ["ج", "C", "c"],
         "ح": ["ح", "خ"],
-        "ي": ["ي", "ى"],
-        "ز": ["ز"],
-        "ر": ["ر"],
-        "WW": ["WW", "ww"],
+        "ي": ["ي", "ى", "Y", "y"],
+        "ز": ["ز", "Z", "z"],
+        "ر": ["ر", "r"],
+        "WW": ["WW", "ww", "Ww"],
     }
 
     if not ocr_results:
@@ -459,14 +460,16 @@ def parse_moroccan_plate(ocr_results):
             x_center = (bbox[0][0] + bbox[1][0] + bbox[2][0] + bbox[3][0]) / 4.0
             boxes.append((x_center, t))
 
+    # ترتيب من اليمين إلى اليسار
     boxes.sort(key=lambda item: item[0], reverse=True)
 
     detected_letter = ""
+    # استخراج الحرف دون حذف رقم 1
     for x_pos, txt in boxes:
-        clean_txt = re.sub(r"[\s\|\/\\\[\]\(\)\-1I!l]", "", txt)
+        clean_txt = re.sub(r"[\s\|\/\\\[\]\(\)\-]", "", txt)
         for main_let, aliases in arabic_targets.items():
             for alias in aliases:
-                if alias in clean_txt or alias in txt:
+                if alias == clean_txt or (len(clean_txt) <= 2 and alias in clean_txt):
                     detected_letter = main_let
                     break
             if detected_letter:
@@ -474,16 +477,11 @@ def parse_moroccan_plate(ocr_results):
         if detected_letter:
             break
 
-    if not detected_letter:
-        for x_pos, txt in boxes:
-            clean_t = txt.strip()
-            if clean_t in ["5", "0", "o", "O"]:
-                detected_letter = "د"
-                break
-
+    # استخراج كافة الأرقام
     num_boxes = []
     for x_pos, txt in boxes:
-        nums = re.findall(r"\d+", txt)
+        t_fixed = txt.replace("S", "5").replace("s", "5").replace("B", "8")
+        nums = re.findall(r"\d+", t_fixed)
         for n in nums:
             num_boxes.append((x_pos, n))
 
@@ -496,9 +494,11 @@ def parse_moroccan_plate(ocr_results):
 
         remaining = [nb for nb in num_boxes if nb[1] != main_num]
         if remaining:
-            remaining.sort(key=lambda item: item[0], reverse=True)
+            remaining.sort(key=lambda item: item[0])
             for x_p, r_str in remaining:
                 clean_r = clean_str(r_str)
+                if clean_r == "25" and "26" in "".join(all_num_strs):
+                    clean_r = "26"
                 if len(clean_r) <= 2:
                     region_num = clean_r
                     break
@@ -729,7 +729,6 @@ if st.session_state.active_tab == "camera":
             cropped_plate, was_cropped = detect_and_crop_license_plate(image_np)
             processed_np = clean_image_for_ocr(cropped_plate)
             
-            # قراءة مع تكبير وتحسين استشعار الأرقام
             results = reader.readtext(
                 processed_np,
                 allowlist="0123456789أبدهوجحيخزرWW -|[]()/",
@@ -1063,7 +1062,6 @@ elif st.session_state.active_tab == "admin":
                 selection_mode="single-row",
             )
 
-            # عند تحديد سطر من الجدول، تفتح نافذة التعديل والحذف المنبثقة
             selected_rows = selection_event.selection.get("rows", [])
             if selected_rows:
                 selected_idx = selected_rows[0]
