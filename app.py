@@ -375,9 +375,8 @@ def get_apartment_info(bld_num, apt_num):
     return None
 
 
-# ----------------- المعالجة البسيطة والطبيعية للصور دون فلاتر تشويه -----------------
+# ----------------- المعالجة البسيطة للصور -----------------
 def clean_image_for_ocr(image_np):
-    # تحويل رمادي بسيط وطبيعي دون أي فلاتر ثنائية متكلفة
     if len(image_np.shape) == 3:
         return cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
     return image_np
@@ -408,11 +407,9 @@ def parse_moroccan_plate(ocr_results):
             x_center = (bbox[0][0] + bbox[1][0] + bbox[2][0] + bbox[3][0]) / 4.0
             boxes.append((x_center, t))
 
-    # ترتيب من اليمين إلى اليسار
     boxes.sort(key=lambda item: item[0], reverse=True)
 
     detected_letter = ""
-    # استخراج الحرف العربي الطبيعي
     for x_pos, txt in boxes:
         clean_txt = re.sub(r"[\s\|\/\\\[\]\(\)\-]", "", txt)
         for main_let, aliases in arabic_targets.items():
@@ -425,7 +422,6 @@ def parse_moroccan_plate(ocr_results):
         if detected_letter:
             break
 
-    # استخراج الأرقام طبيعياً دون أي تعديل أو تخمين
     num_boxes = []
     for x_pos, txt in boxes:
         nums = re.findall(r"\d+", txt)
@@ -459,7 +455,7 @@ def get_ocr_reader():
     return easyocr.Reader(["ar", "en"], gpu=False)
 
 
-# ----------------- تصميم واجهة التطبيق CSS (توسيط العناوين) -----------------
+# ----------------- تصميم واجهة التطبيق CSS -----------------
 st.markdown(
     """
 <style>
@@ -671,7 +667,6 @@ if st.session_state.active_tab == "camera":
 
         with st.spinner("⚡ جاري قراءة الترقيم..."):
             processed_np = clean_image_for_ocr(image_np)
-            # قراءة مباشرة دون أي تشويه أو تخمين مصطنع
             results = reader.readtext(
                 processed_np,
                 allowlist="0123456789أبدهوجحيخزرWW -|[]()/",
@@ -706,45 +701,36 @@ if st.session_state.active_tab == "camera":
                 st.markdown("---")
                 st.markdown("🏢 **تحديد العمارة والشقة لجلب المعطيات بدقة:**")
 
-                if "fetched_cam_name" not in st.session_state:
-                    st.session_state["fetched_cam_name"] = ""
-                if "fetched_cam_phone" not in st.session_state:
-                    st.session_state["fetched_cam_phone"] = ""
-                if "fetched_cam_apt_type" not in st.session_state:
-                    st.session_state["fetched_cam_apt_type"] = ""
-
                 col_bld_in, col_apt_in, col_fetch_btn = st.columns([1.5, 1.5, 1])
                 with col_bld_in:
-                    entered_bld = st.text_input("العمارة:", placeholder="مثال: 1", key="cam_bld_input")
+                    entered_bld = st.text_input("العمارة:", placeholder="مثال: 1", key="cam_bld_in")
                 with col_apt_in:
-                    entered_apt = st.text_input("الشقة:", placeholder="مثال: 1", key="cam_apt_input")
+                    entered_apt = st.text_input("الشقة:", placeholder="مثال: 1", key="cam_apt_in")
                 with col_fetch_btn:
                     st.write("")
                     st.write("")
                     if st.button("جلب ⚡", key="cam_fetch_btn", use_container_width=True):
                         data = get_apartment_info(entered_bld, entered_apt)
                         if data:
-                            st.session_state["fetched_cam_name"] = data["resident_name"]
-                            st.session_state["fetched_cam_phone"] = data["phone"]
-                            st.session_state["fetched_cam_apt_type"] = data["apartment_type"]
+                            st.session_state["cam_name_widget"] = data["resident_name"]
+                            st.session_state["cam_phone_widget"] = data["phone"]
+                            apt_t = data["apartment_type"]
+                            st.session_state["cam_apttype_widget"] = apt_t if apt_t in apt_types_list else ""
                             st.rerun()
                         else:
                             st.warning("⚠️ لم يتم العثور على شقة بهذه البيانات في fm6.xlsx.")
 
                 c_t1, c_t2 = st.columns(2)
                 with c_t1:
-                    curr_t = st.session_state.get("fetched_cam_apt_type", "")
-                    idx_type = apt_types_list.index(curr_t) if curr_t in apt_types_list else 0
                     apartment_type = st.selectbox(
                         "نوع الشقة (F2, F3, ...):",
                         apt_types_list,
-                        index=idx_type,
                         key="cam_apttype_widget",
                     )
                 with c_t2:
-                    name = st.text_input("اسم الساكن", value=st.session_state.get("fetched_cam_name", ""), placeholder="الاسم الكامل", key="cam_name_widget")
+                    name = st.text_input("اسم الساكن", placeholder="الاسم الكامل", key="cam_name_widget")
 
-                phone = st.text_input("رقم الهاتف", value=st.session_state.get("fetched_cam_phone", ""), placeholder="06XXXXXXXX", key="cam_phone_widget")
+                phone = st.text_input("رقم الهاتف", placeholder="06XXXXXXXX", key="cam_phone_widget")
                 car_desc = st.text_input("نوع ولون السيارة (اختياري)", key="cam_desc_in")
 
                 if st.button("💾 حفظ في ملف residence.xlsx", type="primary", use_container_width=True):
@@ -766,9 +752,9 @@ if st.session_state.active_tab == "camera":
                             car_desc,
                             "",
                         )
-                        st.session_state["fetched_cam_name"] = ""
-                        st.session_state["fetched_cam_phone"] = ""
-                        st.session_state["fetched_cam_apt_type"] = ""
+                        st.session_state["cam_name_widget"] = ""
+                        st.session_state["cam_phone_widget"] = ""
+                        st.session_state["cam_apttype_widget"] = ""
                         st.success("✅ تم حفظ السيارة بنجاح في ملف residence.xlsx!")
                         st.rerun()
                     else:
@@ -776,10 +762,55 @@ if st.session_state.active_tab == "camera":
         else:
             st.warning("تعذر قراءة أرقام واضحة، حاول التقاط صورة أقرب للوحة.")
 
-# ==================== 2. قسم الاستعلام الشامل ====================
+# ==================== 2. قسم الاستعلام الشامل (مع خاصية الجلب المباشر للشقة) ====================
 elif st.session_state.active_tab == "search":
     st.subheader("🔍 استعلام وبحث فوري شامل")
-    st.caption("البحث التلقائي يشمل: جدول سيارات الموقف (residence.xlsx) + دليل الشقق والسكان (fm6.xlsx):")
+    
+    # ميزة الجلب السريع بمعطيات الشقة والعمارة
+    with st.expander("🏢 استعلام مباشر وسريع برقم العمارة والشقة (جلب ⚡)", expanded=True):
+        col_sbld, col_sapt, col_sbtn = st.columns([1.5, 1.5, 1])
+        with col_sbld:
+            search_bld = st.text_input("رقم العمارة:", placeholder="مثال: 25", key="search_bld_input")
+        with col_sapt:
+            search_apt = st.text_input("رقم الشقة:", placeholder="مثال: 2", key="search_apt_input")
+        with col_sbtn:
+            st.write("")
+            st.write("")
+            fetch_apt_clicked = st.button("جلب الساكن ⚡", key="btn_fetch_in_search", use_container_width=True)
+
+        if fetch_apt_clicked:
+            if search_apt:
+                apt_data = get_apartment_info(search_bld, search_apt)
+                if apt_data:
+                    st.success("🎯 تم جلب بيانات الشقة بنجاح من fm6.xlsx:")
+                    render_directory_card(apt_data)
+
+                    # البحث التلقائي عن السيارات المسجلة لنفس الشقة
+                    df_all_cars = get_all_records()
+                    if not df_all_cars.empty:
+                        b_norm = normalize_num(search_bld)
+                        a_norm = normalize_num(search_apt)
+                        if b_norm:
+                            matched_cars = df_all_cars[
+                                (df_all_cars["building"].apply(normalize_num) == b_norm) &
+                                (df_all_cars["apartment"].apply(normalize_num) == a_norm)
+                            ]
+                        else:
+                            matched_cars = df_all_cars[df_all_cars["apartment"].apply(normalize_num) == a_norm]
+
+                        if not matched_cars.empty:
+                            st.markdown(f"#### 🚗 السيارات المسجلة لهذه الشقة ({len(matched_cars)} سيارة):")
+                            for _, car_r in matched_cars.iterrows():
+                                render_car_card(car_r, allow_edit=True)
+                        else:
+                            st.info("ℹ️ لا توجد سيارات مسجلة لهذه الشقة بعد في ملف residence.xlsx.")
+                else:
+                    st.warning("⚠️ لم يتم العثور على شقة بهذه الأرقام في دليل الشقق fm6.xlsx.")
+            else:
+                st.error("يرجى كتابة رقم الشقة على الأقل.")
+
+    st.markdown("---")
+    st.caption("أو ابحث عن أي نص عام (رقم اللوحة، اسم الساكن، الهاتف، العمارة):")
 
     with st.form("search_form"):
         col_in, col_bt = st.columns([3, 1])
@@ -835,16 +866,17 @@ elif st.session_state.active_tab == "search":
         if not cars_found and not dir_found:
             st.info("لم يتم العثور على أي تطابق في موقف السيارات ولا في دليل الشقق.")
 
-# ==================== 3. قسم التسجيل اليدوي ====================
+# ==================== 3. قسم التسجيل اليدوي (مع الجلب الفوري والآني) ====================
 elif st.session_state.active_tab == "add":
     st.subheader("➕ تسجيل سيارة يدوياً")
 
-    if "fetched_manual_name" not in st.session_state:
-        st.session_state["fetched_manual_name"] = ""
-    if "fetched_manual_phone" not in st.session_state:
-        st.session_state["fetched_manual_phone"] = ""
-    if "fetched_manual_apt_type" not in st.session_state:
-        st.session_state["fetched_manual_apt_type"] = ""
+    # تهيئة مفاتيح الـ Widgets في session_state لتحديثها اللحظي عند الضغط على جلب
+    if "manual_name_widget" not in st.session_state:
+        st.session_state["manual_name_widget"] = ""
+    if "manual_phone_widget" not in st.session_state:
+        st.session_state["manual_phone_widget"] = ""
+    if "manual_apttype_widget" not in st.session_state:
+        st.session_state["manual_apttype_widget"] = ""
 
     c1, c2, c3 = st.columns([2, 1, 1])
     with c1:
@@ -868,27 +900,34 @@ elif st.session_state.active_tab == "add":
         if st.button("جلب ⚡", key="m_fetch_btn", use_container_width=True):
             m_data = get_apartment_info(m_bld, m_apt)
             if m_data:
-                st.session_state["fetched_manual_name"] = m_data["resident_name"]
-                st.session_state["fetched_manual_phone"] = m_data["phone"]
-                st.session_state["fetched_manual_apt_type"] = m_data["apartment_type"]
+                # تحديث قيم الحقول مباشرة في session_state لظهورها اللحظي
+                st.session_state["manual_name_widget"] = m_data["resident_name"]
+                st.session_state["manual_phone_widget"] = m_data["phone"]
+                apt_t = m_data["apartment_type"]
+                st.session_state["manual_apttype_widget"] = apt_t if apt_t in apt_types_list else ""
                 st.rerun()
             else:
                 st.warning("⚠️ لم يتم العثور على شقة بهذه الأرقام في ملف fm6.xlsx.")
 
     c_ma1, c_ma2 = st.columns(2)
     with c_ma1:
-        curr_m_type = st.session_state.get("fetched_manual_apt_type", "")
-        m_type_idx = apt_types_list.index(curr_m_type) if curr_m_type in apt_types_list else 0
         m_apt_type = st.selectbox(
             "نوع الشقة:",
             apt_types_list,
-            index=m_type_idx,
-            key="manual_apt_type_widget",
+            key="manual_apttype_widget",
         )
     with c_ma2:
-        name = st.text_input("اسم الساكن", value=st.session_state.get("fetched_manual_name", ""), placeholder="الاسم الكامل", key="manual_name_widget")
+        name = st.text_input(
+            "اسم الساكن",
+            placeholder="الاسم الكامل",
+            key="manual_name_widget"
+        )
 
-    phone = st.text_input("رقم الهاتف", value=st.session_state.get("fetched_manual_phone", ""), placeholder="06XXXXXXXX", key="manual_phone_widget")
+    phone = st.text_input(
+        "رقم الهاتف",
+        placeholder="06XXXXXXXX",
+        key="manual_phone_widget"
+    )
     car_desc = st.text_input("نوع ولون السيارة", placeholder="مثال: داسيا بيضاء", key="m_car_desc")
 
     if st.button("💾 حفظ في ملف residence.xlsx", type="primary", use_container_width=True):
@@ -914,9 +953,10 @@ elif st.session_state.active_tab == "add":
                     car_desc,
                     "",
                 )
-                st.session_state["fetched_manual_name"] = ""
-                st.session_state["fetched_manual_phone"] = ""
-                st.session_state["fetched_manual_apt_type"] = ""
+                # تفريغ الحقول بعد الحفظ بنجاح
+                st.session_state["manual_name_widget"] = ""
+                st.session_state["manual_phone_widget"] = ""
+                st.session_state["manual_apttype_widget"] = ""
                 st.success("✅ تم حفظ السيارة في ملف residence.xlsx بنجاح!")
                 st.rerun()
         else:
