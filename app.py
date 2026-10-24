@@ -217,6 +217,80 @@ def delete_record(record_id):
     save_df_to_residence_file()
 
 
+# ----------------- نافذة التعديل والحذف المنبثقة (Modal Dialog) -----------------
+@st.dialog("✏️ تعديل بيانات السيارة والساكن أو الحذف")
+def edit_car_dialog(row):
+    rec_id = int(row["id"])
+    st.caption(f"معرف السجل: #{rec_id}")
+
+    c_p1, c_p2, c_p3 = st.columns([2, 1, 1])
+    with c_p1:
+        dlg_pnum = st.text_input("أرقام اللوحة *", value=clean_str(row["plate_number"]), key=f"dlg_pnum_{rec_id}")
+    with c_p2:
+        let_val = row["plate_letter"] if pd.notna(row["plate_letter"]) and row["plate_letter"] in letters_list else ""
+        dlg_plet = st.selectbox("الحرف", letters_list, index=letters_list.index(let_val) if let_val else 0, key=f"dlg_plet_{rec_id}")
+    with c_p3:
+        dlg_preg = st.text_input("العمالة", value=clean_str(row["plate_region"]), key=f"dlg_preg_{rec_id}")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        dlg_bld = st.text_input("رقم العمارة", value=clean_str(row["building"]), key=f"dlg_bld_{rec_id}")
+    with c2:
+        dlg_apt = st.text_input("رقم الشقة", value=clean_str(row["apartment"]), key=f"dlg_apt_{rec_id}")
+    with c3:
+        curr_t = clean_apt_type(row.get("apartment_type", ""))
+        idx_t = apt_types_list.index(curr_t) if curr_t in apt_types_list else 0
+        dlg_apttype = st.selectbox("نوع الشقة", apt_types_list, index=idx_t, key=f"dlg_apttype_{rec_id}")
+
+    c_n1, c_n2 = st.columns(2)
+    with c_n1:
+        dlg_name = st.text_input("اسم الساكن", value=str(row["resident_name"]) if pd.notna(row["resident_name"]) else "", key=f"dlg_name_{rec_id}")
+    with c_n2:
+        dlg_phone = st.text_input("رقم الهاتف", value=clean_str(row["phone"]), key=f"dlg_phone_{rec_id}")
+
+    c_c1, c_c2 = st.columns(2)
+    with c_c1:
+        dlg_car = st.text_input("نوع ولون السيارة", value=str(row["car_info"]) if pd.notna(row["car_info"]) else "", key=f"dlg_car_{rec_id}")
+    with c_c2:
+        curr_s = clean_str(row.get("car_type", "مالك"))
+        s_idx = status_options.index(curr_s) if curr_s in status_options else 0
+        dlg_status = st.radio("الصفة:", status_options, index=s_idx, horizontal=True, key=f"dlg_status_{rec_id}")
+
+    dlg_notes = st.text_input("ملاحظات إضافية", value=clean_str(row["notes"]), key=f"dlg_notes_{rec_id}")
+
+    st.markdown("---")
+    btn_col1, btn_col2 = st.columns(2)
+
+    with btn_col1:
+        if st.button("💾 حفظ وتحديث في residence.xlsx", type="primary", use_container_width=True, key=f"save_dlg_{rec_id}"):
+            e_p_num = clean_str(dlg_pnum)
+            e_p_reg = clean_str(dlg_preg)
+            new_full_plate = f"{e_p_num} | {dlg_plet} | {e_p_reg}"
+            update_full_record(
+                rec_id,
+                dlg_bld,
+                dlg_apt,
+                dlg_apttype,
+                dlg_name,
+                dlg_phone,
+                e_p_num,
+                dlg_plet,
+                e_p_reg,
+                new_full_plate,
+                dlg_status,
+                dlg_car,
+                dlg_notes,
+            )
+            st.success("✅ تم تحديث بيانات السيارة بنجاح في ملف residence.xlsx!")
+            st.rerun()
+
+    with btn_col2:
+        if st.button("🗑️ حذف هذا السجل نهائياً", use_container_width=True, key=f"del_dlg_{rec_id}"):
+            delete_record(rec_id)
+            st.warning("🗑️ تم حذف السجل نهائياً من ملف residence.xlsx!")
+            st.rerun()
+
+
 # ----------------- قراءة دليل الشقق والسكان fm6.xlsx -----------------
 @st.cache_data
 def load_fm6_directory():
@@ -429,7 +503,7 @@ def get_ocr_reader():
     return easyocr.Reader(["ar", "en"], gpu=False)
 
 
-# ----------------- تصميم واجهة التطبيق CSS -----------------
+# ----------------- تصميم واجهة التطبيق CSS (تمت موازاة وتوسيط العناوين) -----------------
 st.markdown(
     """
 <style>
@@ -441,6 +515,13 @@ st.markdown(
         direction: rtl;
         text-align: right;
     }
+    
+    /* توسيط جميع الترويسات والعناوين الرئيسية */
+    h1, h2, h3, [data-testid="stHeadingWithActionElements"] h2, .section-header {
+        text-align: center !important;
+        justify-content: center !important;
+    }
+
     .app-top-header {
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #2563eb 100%);
         border-radius: 18px;
@@ -449,9 +530,13 @@ st.markdown(
         color: white;
         box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.2);
         display: flex;
-        justify-content: space-between;
+        flex-direction: column;
         align-items: center;
+        justify-content: center;
+        text-align: center;
+        gap: 6px;
     }
+    
     .morocco-plate-tag {
         display: inline-flex;
         align-items: center;
@@ -532,52 +617,9 @@ def render_car_card(row, allow_edit=True):
                 st.link_button("💬 تنبيه واتساب", wa_link, use_container_width=True)
 
         if allow_edit:
-            with st.expander("✏️ تعديل أو إكمال معطيات هذه السيارة"):
-                col_e1, col_e2, col_e3 = st.columns(3)
-                with col_e1:
-                    e_bld = st.text_input("العمارة", value=clean_str(row["building"]), key=f"card_bld_{rec_id}")
-                with col_e2:
-                    e_apt = st.text_input("الشقة", value=clean_str(row["apartment"]), key=f"card_apt_{rec_id}")
-                with col_e3:
-                    curr_apt_type = clean_apt_type(row.get("apartment_type", ""))
-                    type_idx = apt_types_list.index(curr_apt_type) if curr_apt_type in apt_types_list else 0
-                    e_apt_type = st.selectbox("نوع الشقة", apt_types_list, index=type_idx, key=f"card_apttype_{rec_id}")
-
-                col_n1, col_n2 = st.columns(2)
-                with col_n1:
-                    e_name = st.text_input("اسم الساكن", value=str(row["resident_name"]) if pd.notna(row["resident_name"]) else "", key=f"card_name_{rec_id}")
-                with col_n2:
-                    e_phone = st.text_input("رقم الهاتف", value=clean_str(row["phone"]), key=f"card_phone_{rec_id}")
-
-                col_e4, col_e5 = st.columns(2)
-                with col_e4:
-                    e_car = st.text_input("نوع ولون السيارة", value=str(row["car_info"]) if pd.notna(row["car_info"]) else "", key=f"card_car_{rec_id}")
-                with col_e5:
-                    curr_status = clean_str(row.get("car_type", "مالك"))
-                    s_idx = status_options.index(curr_status) if curr_status in status_options else 0
-                    e_status = st.radio("الصفة", status_options, index=s_idx, horizontal=True, key=f"card_status_{rec_id}")
-
-                e_notes = st.text_input("ملاحظات", value=clean_str(row["notes"]), key=f"card_notes_{rec_id}")
-
-                if st.button("💾 حفظ التعديلات في residence.xlsx", key=f"btn_save_card_{rec_id}", type="primary"):
-                    p_full_str = f"{clean_str(row['plate_number'])} | {row['plate_letter']} | {clean_str(row['plate_region'])}"
-                    update_full_record(
-                        rec_id,
-                        e_bld,
-                        e_apt,
-                        e_apt_type,
-                        e_name,
-                        e_phone,
-                        clean_str(row["plate_number"]),
-                        str(row["plate_letter"]),
-                        clean_str(row["plate_region"]),
-                        p_full_str,
-                        e_status,
-                        e_car,
-                        e_notes,
-                    )
-                    st.success("✅ تم تحديث السجل في ملف residence.xlsx بنجاح!")
-                    st.rerun()
+            st.write("")
+            if st.button("✏️ تعديل أو حذف هذه السيارة", key=f"btn_edit_card_{rec_id}", use_container_width=True):
+                edit_car_dialog(row)
 
 
 # ----------------- بطاقة عرض الساكن من دليل الشقق (fm6) -----------------
@@ -624,11 +666,9 @@ if "active_tab" not in st.session_state:
 st.markdown(
     """
 <div class="app-top-header">
-    <div>
-        <h2 style="margin: 0; font-size: 20px; color: white;">🚗 تدبير موقف سيارات إقامة نفيس</h2>
-        <div style="font-size: 11px; opacity: 0.85; margin-top: 3px;">منظومة تسيير متكاملة عبر ملف residence.xlsx</div>
-    </div>
-    <div style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700;">
+    <h2 style="margin: 0; font-size: 21px; color: white;">🚗 تدبير موقف سيارات إقامة نفيس</h2>
+    <div style="font-size: 11px; opacity: 0.85;">منظومة تسيير متكاملة عبر ملف residence.xlsx</div>
+    <div style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; margin-top: 4px;">
         Excel Local Mode ⚡
     </div>
 </div>
@@ -927,7 +967,7 @@ elif st.session_state.active_tab == "add":
         else:
             st.error("أدخل رقم اللوحة على الأقل.")
 
-# ==================== 4. قسم الإدارة وتنزيل Excel ====================
+# ==================== 4. قسم الإدارة وتنزيل Excel والتعديل بالنقر ====================
 elif st.session_state.active_tab == "admin":
     st.subheader("🔒 إدارة المنظومة وملف residence.xlsx")
 
@@ -978,7 +1018,6 @@ elif st.session_state.active_tab == "admin":
             # تنزيل ملف الإكسيل المحين
             st.markdown("---")
             st.subheader("📥 تنزيل وتصدير ملف residence.xlsx المُحيّن")
-            st.caption("احفظ نسختك المحدثة في أي وقت لرفعها إلى مستودع GitHub:")
             
             towrite = io.BytesIO()
             with pd.ExcelWriter(towrite, engine="openpyxl") as writer:
@@ -993,105 +1032,29 @@ elif st.session_state.active_tab == "admin":
                 use_container_width=True,
             )
 
-            # قسم التعديل عبر البحث المباشر
-            st.markdown("---")
-            st.subheader("✏️ البحث عن سيارة لتعديل أو استكمال معطياتها")
-
-            edit_query = st.text_input(
-                "🔎 بحث عن السجل:",
-                value="",
-                placeholder="",
-                label_visibility="collapsed",
-                key="edit_search_field",
-            )
-
-            if edit_query:
-                mask_edit = (
-                    df["plate_number"].astype(str).str.contains(edit_query)
-                    | df["building"].astype(str).str.contains(edit_query)
-                    | df["apartment"].astype(str).str.contains(edit_query)
-                    | df["apartment_type"].astype(str).str.contains(edit_query, case=False)
-                    | df["car_type"].astype(str).str.contains(edit_query, case=False)
-                    | df["resident_name"].astype(str).str.contains(edit_query, case=False)
-                )
-                res_edit = df[mask_edit]
-
-                if not res_edit.empty:
-                    st.write(f"تم العثور على ({len(res_edit)}) نتيجة:")
-                    for _, row_sel in res_edit.iterrows():
-                        selected_car_id = int(row_sel["id"])
-                        with st.expander(
-                            f"📝 تعديل: [{row_sel['full_plate']}] - العمارة: {row_sel['building']} | الساكن: {row_sel['resident_name']}",
-                            expanded=True,
-                        ):
-                            c_p1, c_p2, c_p3 = st.columns([2, 1, 1])
-                            with c_p1:
-                                edit_p_num = st.text_input("أرقام اللوحة", value=clean_str(row_sel["plate_number"]), key=f"adm_pnum_{selected_car_id}")
-                            with c_p2:
-                                let_val = row_sel["plate_letter"] if pd.notna(row_sel["plate_letter"]) and row_sel["plate_letter"] in letters_list else ""
-                                edit_p_let = st.selectbox("الحرف", letters_list, index=letters_list.index(let_val) if let_val else 0, key=f"adm_plet_{selected_car_id}")
-                            with c_p3:
-                                edit_p_reg = st.text_input("العمالة", value=clean_str(row_sel["plate_region"]), key=f"adm_preg_{selected_car_id}")
-
-                            curr_status = clean_str(row_sel.get("car_type", "مالك"))
-                            s_idx = status_options.index(curr_status) if curr_status in status_options else 0
-                            edit_car_type = st.radio("صفة الساكن:", status_options, index=s_idx, horizontal=True, key=f"adm_type_{selected_car_id}")
-
-                            c1, c2, c3 = st.columns(3)
-                            with c1:
-                                new_bld = st.text_input("رقم العمارة", value=clean_str(row_sel["building"]), key=f"adm_bld_{selected_car_id}")
-                            with c2:
-                                new_apt = st.text_input("رقم الشقة", value=clean_str(row_sel["apartment"]), key=f"adm_apt_{selected_car_id}")
-                            with c3:
-                                curr_type_db = clean_apt_type(row_sel.get("apartment_type", ""))
-                                idx_t_db = apt_types_list.index(curr_type_db) if curr_type_db in apt_types_list else 0
-                                new_apt_type = st.selectbox("نوع الشقة", apt_types_list, index=idx_t_db, key=f"adm_apttype_{selected_car_id}")
-
-                            c_n1, c_n2 = st.columns(2)
-                            with c_n1:
-                                new_name = st.text_input("اسم الساكن", value=(str(row_sel["resident_name"]) if pd.notna(row_sel["resident_name"]) else ""), key=f"adm_name_{selected_car_id}")
-                            with c_n2:
-                                new_phone = st.text_input("رقم الهاتف", value=clean_str(row_sel["phone"]), key=f"adm_phone_{selected_car_id}")
-
-                            c_c1, c_c2 = st.columns(2)
-                            with c_c1:
-                                new_car_info = st.text_input("نوع ولون السيارة", value=(str(row_sel["car_info"]) if pd.notna(row_sel["car_info"]) else ""), key=f"adm_car_{selected_car_id}")
-                            with c_c2:
-                                new_notes = st.text_input("ملاحظات", value=clean_str(row_sel["notes"]), key=f"adm_notes_{selected_car_id}")
-
-                            if st.button("💾 حفظ وتحديث في residence.xlsx", key=f"btn_save_adm_{selected_car_id}", type="primary"):
-                                e_p_num = clean_str(edit_p_num)
-                                e_p_reg = clean_str(edit_p_reg)
-                                new_full_plate = f"{e_p_num} | {edit_p_let} | {e_p_reg}"
-                                update_full_record(
-                                    selected_car_id,
-                                    new_bld,
-                                    new_apt,
-                                    new_apt_type,
-                                    new_name,
-                                    new_phone,
-                                    e_p_num,
-                                    edit_p_let,
-                                    e_p_reg,
-                                    new_full_plate,
-                                    edit_car_type,
-                                    new_car_info,
-                                    new_notes,
-                                )
-                                st.success("✅ تم تحديث بيانات السيارة بنجاح في ملف residence.xlsx!")
-                                st.rerun()
-                else:
-                    st.info("لم يتم العثور على أي سيارة مطابقة للبحث للتعديل عليها.")
-
+            # ----------------- الجدول الشامل التفاعلي (انقر على السطر للتعديل أو الحذف) -----------------
             st.markdown("---")
             st.subheader("📋 الجدول الشامل للسيارات")
-            st.dataframe(df, use_container_width=True)
+            st.info("💡 **انقر على أي سطر في الجدول أسفله لفتح نافذة التعديل أو الحذف المباشر فوراً:**")
 
-            with st.expander("🗑️ حذف سيارة من النظام وملف الإكسيل"):
-                del_id = st.number_input("أدخل معرف السجل (ID):", min_value=1, step=1)
-                if st.button("تأكيد الحذف نهائياً", use_container_width=True):
-                    delete_record(del_id)
-                    st.rerun()
+            display_cols = ["id", "full_plate", "building", "apartment", "apartment_type", "resident_name", "phone", "car_type", "car_info", "created_at"]
+            df_display = df[[c for c in display_cols if c in df.columns]]
+
+            selection_event = st.dataframe(
+                df_display,
+                use_container_width=True,
+                hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row",
+            )
+
+            # عند تحديد سطر من الجدول، تفتح نافذة التعديل والحذف المنبثقة
+            selected_rows = selection_event.selection.get("rows", [])
+            if selected_rows:
+                selected_idx = selected_rows[0]
+                selected_car_row = df.iloc[selected_idx]
+                edit_car_dialog(selected_car_row)
+
         else:
             st.info("لا توجد سيارات مسجلة بعد.")
 
