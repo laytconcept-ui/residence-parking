@@ -1,9 +1,6 @@
 streamlit
-easyocr
-opencv-python-headless
 pandas
 openpyxl
 pillow
-sqlalchemy
-psycopg2-binary
-psycopg[binary]
+opencv-python-headless
+google-genai
