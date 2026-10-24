@@ -2,12 +2,13 @@ import io
 import os
 import re
 from datetime import datetime
-import cv2
-import easyocr
+import json
 import numpy as np
 import pandas as pd
 from PIL import Image
 import streamlit as st
+from google import genai
+from google.genai import types
 
 st.set_page_config(
     page_title="تدبير موقف سيارات إقامة نفيس",
@@ -364,84 +365,52 @@ def get_apartment_info(bld_num, apt_num):
     return None
 
 
-# ----------------- المعالجة البسيطة للصور -----------------
-def clean_image_for_ocr(image_np):
-    if len(image_np.shape) == 3:
-        return cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
-    return image_np
+# ----------------- التعرف فائق الدقة عبر الذكاء البصري -----------------
+def analyze_plate_with_vision(image_bytes):
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        try:
+            api_key = st.secrets["GEMINI_API_KEY"]
+        except Exception:
+            api_key = None
 
+    if not api_key:
+        return None, "يرجى إضافة مفتاح GEMINI_API_KEY في إعدادات Streamlit Secrets."
 
-def parse_moroccan_plate(ocr_results):
-    arabic_targets = {
-        "أ": ["أ", "ا", "إ", "آ"],
-        "ب": ["ب"],
-        "د": ["د", "ذ"],
-        "هـ": ["هـ", "ه", "ة"],
-        "و": ["و"],
-        "ج": ["ج"],
-        "ح": ["ح", "خ"],
-        "ي": ["ي", "ى"],
-        "ز": ["ز"],
-        "ر": ["ر"],
-        "WW": ["WW", "ww"],
-    }
+    try:
+        client = genai.Client(api_key=api_key)
+        prompt = """
+        أنت خبير في التعرف على لوحات ترقيم السيارات المغربية.
+        قم باستخراج تفاصيل لوحة ترقيم السيارة من الصورة المرفقة.
+        اللوحة المغربية تتكون عادة من:
+        1. رقم تسجيل (أرقام).
+        2. حرف عربي فاصل (مثل: أ، ب، د، هـ، و، ج، ح، ي، ز، ر، أو WW).
+        3. رقم العمالة/الجهة (رقم من خانة أو خانتين يقع عادة في أقصى اليسار مثل 26).
+        
+        أرجع النتيجة بصيغة JSON حصرية دون أي نصوص إضافية:
+        {
+            "plate_number": "1591",
+            "plate_letter": "د",
+            "plate_region": "26",
+            "car_desc": "نوع ولون السيارة إن كان واضحاً مثل فورد فضية"
+        }
+        """
 
-    if not ocr_results:
-        return "", "", "", ""
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[
+                types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
+                prompt
+            ],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json"
+            )
+        )
 
-    boxes = []
-    for bbox, text, prob in ocr_results:
-        t = text.strip()
-        if t:
-            x_center = (bbox[0][0] + bbox[1][0] + bbox[2][0] + bbox[3][0]) / 4.0
-            boxes.append((x_center, t))
-
-    boxes.sort(key=lambda item: item[0], reverse=True)
-
-    detected_letter = ""
-    for x_pos, txt in boxes:
-        clean_txt = re.sub(r"[\s\|\/\\\[\]\(\)\-]", "", txt)
-        for main_let, aliases in arabic_targets.items():
-            for alias in aliases:
-                if alias in clean_txt:
-                    detected_letter = main_let
-                    break
-            if detected_letter:
-                break
-        if detected_letter:
-            break
-
-    num_boxes = []
-    for x_pos, txt in boxes:
-        nums = re.findall(r"\d+", txt)
-        for n in nums:
-            num_boxes.append((x_pos, n))
-
-    main_num = ""
-    region_num = ""
-
-    if num_boxes:
-        all_num_strs = [nb[1] for nb in num_boxes]
-        main_num = clean_str(max(all_num_strs, key=len))
-
-        remaining = [nb for nb in num_boxes if nb[1] != main_num]
-        if remaining:
-            remaining.sort(key=lambda item: item[0])
-            for x_p, r_str in remaining:
-                clean_r = clean_str(r_str)
-                if len(clean_r) <= 2:
-                    region_num = clean_r
-                    break
-            if not region_num:
-                region_num = clean_str(remaining[0][1])
-
-    full_display = f"{main_num} | {detected_letter if detected_letter else '-'} | {region_num if region_num else '-'}"
-    return main_num, detected_letter, region_num, full_display
-
-
-@st.cache_resource
-def get_ocr_reader():
-    return easyocr.Reader(["ar", "en"], gpu=False)
+        result_json = json.loads(response.text)
+        return result_json, None
+    except Exception as e:
+        return None, f"خطأ أثناء التحليل: {e}"
 
 
 # ----------------- تصميم CSS المطور -----------------
@@ -680,9 +649,8 @@ with nav_c4:
 
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
-# ==================== 1. قسم الكاميرا (مع ميزة الجلب اللحظي للساكن) ====================
+# ==================== 1. قسم الكاميرا (الذكاء البصري الفائق) ====================
 if st.session_state.active_tab == "camera":
-    # معالجة تفريغ الحقول قبل إنشاء الـ widgets لمنع أخطاء Streamlit
     if st.session_state.get("reset_cam_form", False):
         st.session_state["cam_bld_in"] = ""
         st.session_state["cam_apt_in"] = ""
@@ -694,32 +662,40 @@ if st.session_state.active_tab == "camera":
         st.session_state["cam_apttype_widget"] = apt_types_list[0]
         st.session_state["reset_cam_form"] = False
 
-    # تهيئة أولية للمفاتيح
     if "cam_name_widget" not in st.session_state:
         st.session_state["cam_name_widget"] = ""
     if "cam_phone_widget" not in st.session_state:
         st.session_state["cam_phone_widget"] = ""
     if "cam_apttype_widget" not in st.session_state:
         st.session_state["cam_apttype_widget"] = apt_types_list[0]
+    if "cam_desc_in" not in st.session_state:
+        st.session_state["cam_desc_in"] = ""
 
-    st.subheader("📷 التقاط لوحة السيارة")
+    st.subheader("📷 التقاط لوحة السيارة بالذكاء البصري")
     camera_file = st.camera_input("")
 
     if camera_file is not None:
-        reader = get_ocr_reader()
-        image = Image.open(io.BytesIO(camera_file.getvalue()))
-        image_np = np.array(image)
+        img_bytes = camera_file.getvalue()
 
-        with st.spinner("⚡ جاري قراءة الترقيم..."):
-            processed_np = clean_image_for_ocr(image_np)
-            results = reader.readtext(
-                processed_np,
-                allowlist="0123456789أبدهوجحيخزرWW -|[]()/",
-                detail=1,
-                paragraph=False
-            )
+        # تحليل الصورة عبر الذكاء الاصطناعي فقط عند التقاط صورة جديدة
+        if st.session_state.get("last_processed_img") != img_bytes:
+            with st.spinner("⚡ جاري استيعاب الصورة وقراءة ترقيم اللوحة بالذكاء الاصطناعي..."):
+                plate_data, err = analyze_plate_with_vision(img_bytes)
+                if err:
+                    st.error(err)
+                elif plate_data:
+                    st.session_state["cam_pnum"] = plate_data.get("plate_number", "")
+                    p_let = plate_data.get("plate_letter", "")
+                    st.session_state["cam_plet_val"] = p_let if p_let in letters_list else ""
+                    st.session_state["cam_preg"] = plate_data.get("plate_region", "")
+                    if plate_data.get("car_desc"):
+                        st.session_state["cam_desc_in"] = plate_data.get("car_desc")
+                    st.session_state["last_processed_img"] = img_bytes
 
-        main_num, detected_let, region_num, full_display = parse_moroccan_plate(results)
+        main_num = st.session_state.get("cam_pnum", "")
+        detected_let = st.session_state.get("cam_plet_val", "")
+        region_num = st.session_state.get("cam_preg", "")
+        full_display = f"{main_num} | {detected_let if detected_let else '-'} | {region_num if region_num else '-'}"
 
         if main_num:
             df = get_all_records()
@@ -730,11 +706,11 @@ if st.session_state.active_tab == "camera":
                 for _, row in exist_match.iterrows():
                     render_car_card(row, allow_edit=True)
             else:
-                st.success(f"🎯 ترقيم مرصود: **{full_display}**")
+                st.success(f"🎯 ترقيم مرصود بدقة: **{full_display}**")
 
                 c_p1, c_p2, c_p3 = st.columns([2, 1, 1])
                 with c_p1:
-                    p_num = st.text_input("أرقام اللوحة *", value=main_num, key="cam_pnum")
+                    p_num = st.text_input("الأرقام *", value=main_num, key="cam_pnum")
                 with c_p2:
                     idx = letters_list.index(detected_let) if detected_let in letters_list else 0
                     p_let = st.selectbox("الحرف", letters_list, index=idx, key="cam_plet")
@@ -757,7 +733,6 @@ if st.session_state.active_tab == "camera":
                     if st.button("جلب ⚡", key="cam_fetch_btn", use_container_width=True):
                         data = get_apartment_info(entered_bld, entered_apt)
                         if data:
-                            # تحديث مفاتيح الـ Widgets فورياً في session_state لتظهر فوراً
                             st.session_state["cam_name_widget"] = data["resident_name"]
                             st.session_state["cam_phone_widget"] = data["phone"]
                             apt_t = data["apartment_type"]
@@ -777,7 +752,7 @@ if st.session_state.active_tab == "camera":
                     name = st.text_input("اسم الساكن", key="cam_name_widget")
 
                 phone = st.text_input("رقم الهاتف", key="cam_phone_widget")
-                car_desc = st.text_input("نوع ولون السيارة (اختياري)", key="cam_desc_in")
+                car_desc = st.text_input("نوع ولون السيارة", value=st.session_state.get("cam_desc_in", ""), key="cam_desc_in")
 
                 if st.button("✅ تأكيد حفظ السيارة في residence.xlsx", type="primary", use_container_width=True):
                     if p_num:
@@ -799,12 +774,11 @@ if st.session_state.active_tab == "camera":
                             "",
                         )
                         st.session_state["reset_cam_form"] = True
+                        st.session_state["last_processed_img"] = None
                         st.success("✅ تم حفظ السيارة بنجاح في ملف residence.xlsx!")
                         st.rerun()
                     else:
                         st.error("يرجى كتابة رقم اللوحة.")
-        else:
-            st.warning("تعذر قراءة أرقام واضحة، حاول التقاط صورة أقرب للوحة.")
 
 # ==================== 2. قسم الاستعلام الشامل ====================
 elif st.session_state.active_tab == "search":
