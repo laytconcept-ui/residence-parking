@@ -68,6 +68,7 @@ INITIAL_CARS_BACKUP = [
     (1, "25", "5", "", "عمر", "0673209182", "50308", "و", "9", "50308 | و | 9", "مالك", "grise", "2026-10-15 14:24", "")
 ]
 
+
 def clean_str(val):
     if isinstance(val, (pd.Series, np.ndarray, list)):
         if len(val) == 0:
@@ -82,6 +83,7 @@ def clean_str(val):
         s = s[:-2]
     return s
 
+
 def normalize_num(val):
     s = clean_str(val)
     if not s:
@@ -89,12 +91,14 @@ def normalize_num(val):
     s = s.lstrip("0")
     return s if s else "0"
 
+
 def clean_apt_type(val):
     s = clean_str(val).upper().replace(" ", "")
     for t in ["F2", "F3", "F4", "F5"]:
         if t in s:
             return t
     return s if s else ""
+
 
 def format_moroccan_phone(phone_val):
     p = clean_str(phone_val).replace(" ", "").replace("-", "")
@@ -104,6 +108,7 @@ def format_moroccan_phone(phone_val):
         p = "0" + p
     return p
 
+
 # ----------------- قراءة وإدارة ملف residence.xlsx كقاعدة بيانات -----------------
 def load_residence_file():
     cols = [
@@ -111,7 +116,6 @@ def load_residence_file():
         "phone", "plate_number", "plate_letter", "plate_region",
         "full_plate", "car_type", "car_info", "created_at", "notes"
     ]
-    # البحث عن اسم الملف بأحرف كبيرة أو صغيرة
     target_path = None
     for fname in [RESIDENCE_FILE, "Residence.xlsx", "residence.xls", "Residence.xls"]:
         if os.path.exists(fname):
@@ -132,7 +136,6 @@ def load_residence_file():
         except Exception:
             pass
 
-    # إذا لم يكن الملف موجوداً ينشئه بالسيارات المسبقة
     df_init = pd.DataFrame(INITIAL_CARS_BACKUP, columns=cols)
     try:
         df_init.to_excel(RESIDENCE_FILE, index=False)
@@ -140,15 +143,17 @@ def load_residence_file():
         pass
     return df_init
 
-# حفظ البيانات في الذاكرة الحية للجلسة
+
 if "cars_df" not in st.session_state:
     st.session_state.cars_df = load_residence_file()
+
 
 def save_df_to_residence_file():
     try:
         st.session_state.cars_df.to_excel(RESIDENCE_FILE, index=False)
     except Exception as e:
         st.error(f"خطأ أثناء الكتابة في ملف الإكسيل: {e}")
+
 
 def get_all_records():
     df = st.session_state.cars_df.copy()
@@ -157,6 +162,7 @@ def get_all_records():
     if "phone" in df.columns:
         df["phone"] = df["phone"].apply(format_moroccan_phone)
     return df
+
 
 def add_record(building, apartment, apartment_type, name, phone, plate_num, plate_let, plate_reg, full_plate, car_type, car_info, notes):
     df = st.session_state.cars_df
@@ -184,6 +190,7 @@ def add_record(building, apartment, apartment_type, name, phone, plate_num, plat
     st.session_state.cars_df = pd.concat([pd.DataFrame([new_row]), df], ignore_index=True)
     save_df_to_residence_file()
 
+
 def update_full_record(record_id, building, apartment, apartment_type, name, phone, plate_num, plate_let, plate_reg, full_plate, car_type, car_info, notes):
     df = st.session_state.cars_df
     idx = df[df["id"].astype(str) == str(record_id)].index
@@ -203,10 +210,12 @@ def update_full_record(record_id, building, apartment, apartment_type, name, pho
         st.session_state.cars_df = df
         save_df_to_residence_file()
 
+
 def delete_record(record_id):
     df = st.session_state.cars_df
     st.session_state.cars_df = df[df["id"].astype(str) != str(record_id)].reset_index(drop=True)
     save_df_to_residence_file()
+
 
 # ----------------- قراءة دليل الشقق والسكان fm6.xlsx -----------------
 @st.cache_data
@@ -260,6 +269,7 @@ def load_fm6_directory():
     except Exception:
         return pd.DataFrame(columns=["building", "apartment", "apartment_type", "resident_name", "phone"])
 
+
 def get_apartment_info(bld_num, apt_num):
     b_norm = normalize_num(bld_num)
     a_norm = normalize_num(apt_num)
@@ -289,6 +299,7 @@ def get_apartment_info(bld_num, apt_num):
             "phone": format_moroccan_phone(r.get("phone", "")),
         }
     return None
+
 
 # ----------------- معالجة الصور وفك تشفير اللوحات -----------------
 def detect_and_crop_license_plate(image_np):
@@ -329,12 +340,14 @@ def detect_and_crop_license_plate(image_np):
 
     return image_np, False
 
+
 def clean_image_for_ocr(image_np):
     if len(image_np.shape) == 3:
         gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
     else:
         gray = image_np
     return cv2.equalizeHist(gray)
+
 
 def parse_moroccan_plate(ocr_results):
     arabic_targets = {
@@ -410,9 +423,11 @@ def parse_moroccan_plate(ocr_results):
     full_display = f"{main_num} | {detected_letter if detected_letter else '-'} | {region_num if region_num else '-'}"
     return main_num, detected_letter, region_num, full_display
 
+
 @st.cache_resource
 def get_ocr_reader():
     return easyocr.Reader(["ar", "en"], gpu=False)
+
 
 # ----------------- تصميم واجهة التطبيق CSS -----------------
 st.markdown(
@@ -459,6 +474,7 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
+
 
 # ----------------- بطاقة عرض السيارة -----------------
 def render_car_card(row, allow_edit=True):
@@ -563,6 +579,7 @@ def render_car_card(row, allow_edit=True):
                     st.success("✅ تم تحديث السجل في ملف residence.xlsx بنجاح!")
                     st.rerun()
 
+
 # ----------------- بطاقة عرض الساكن من دليل الشقق (fm6) -----------------
 def render_directory_card(row):
     bld = clean_str(row.get("building", ""))
@@ -598,6 +615,7 @@ def render_directory_card(row):
                 wa_phone = phone[1:] if phone.startswith("0") else phone
                 wa_link = f"https://wa.me/212{wa_phone}"
                 st.link_button("💬 محادثة واتساب", wa_link, use_container_width=True)
+
 
 # ----------------- شريط الملاحة والتنقل -----------------
 if "active_tab" not in st.session_state:
@@ -693,12 +711,12 @@ if st.session_state.active_tab == "camera":
                 st.markdown("---")
                 st.markdown("🏢 **تحديد العمارة والشقة لجلب المعطيات بدقة:**")
 
-                if "cam_name_input" not in st.session_state:
-                    st.session_state["cam_name_input"] = ""
-                if "cam_phone_input" not in st.session_state:
-                    st.session_state["cam_phone_input"] = ""
-                if "cam_apt_type_select" not in st.session_state:
-                    st.session_state["cam_apt_type_select"] = ""
+                if "fetched_cam_name" not in st.session_state:
+                    st.session_state["fetched_cam_name"] = ""
+                if "fetched_cam_phone" not in st.session_state:
+                    st.session_state["fetched_cam_phone"] = ""
+                if "fetched_cam_apt_type" not in st.session_state:
+                    st.session_state["fetched_cam_apt_type"] = ""
 
                 col_bld_in, col_apt_in, col_fetch_btn = st.columns([1.5, 1.5, 1])
                 with col_bld_in:
@@ -711,27 +729,27 @@ if st.session_state.active_tab == "camera":
                     if st.button("جلب ⚡", key="cam_fetch_btn", use_container_width=True):
                         data = get_apartment_info(entered_bld, entered_apt)
                         if data:
-                            st.session_state["cam_name_input"] = data["resident_name"]
-                            st.session_state["cam_phone_input"] = data["phone"]
-                            st.session_state["cam_apt_type_select"] = data["apartment_type"]
+                            st.session_state["fetched_cam_name"] = data["resident_name"]
+                            st.session_state["fetched_cam_phone"] = data["phone"]
+                            st.session_state["fetched_cam_apt_type"] = data["apartment_type"]
                             st.rerun()
                         else:
                             st.warning("⚠️ لم يتم العثور على شقة بهذه البيانات في fm6.xlsx.")
 
                 c_t1, c_t2 = st.columns(2)
                 with c_t1:
-                    curr_t = st.session_state.get("cam_apt_type_select", "")
+                    curr_t = st.session_state.get("fetched_cam_apt_type", "")
                     idx_type = apt_types_list.index(curr_t) if curr_t in apt_types_list else 0
                     apartment_type = st.selectbox(
                         "نوع الشقة (F2, F3, ...):",
                         apt_types_list,
                         index=idx_type,
-                        key="cam_apt_type_select",
+                        key="cam_apttype_widget",
                     )
                 with c_t2:
-                    name = st.text_input("اسم الساكن", value=st.session_state.get("cam_name_input", ""), placeholder="الاسم الكامل", key="cam_name_input")
+                    name = st.text_input("اسم الساكن", value=st.session_state.get("fetched_cam_name", ""), placeholder="الاسم الكامل", key="cam_name_widget")
 
-                phone = st.text_input("رقم الهاتف", value=st.session_state.get("cam_phone_input", ""), placeholder="06XXXXXXXX", key="cam_phone_input")
+                phone = st.text_input("رقم الهاتف", value=st.session_state.get("fetched_cam_phone", ""), placeholder="06XXXXXXXX", key="cam_phone_widget")
                 car_desc = st.text_input("نوع ولون السيارة (اختياري)", key="cam_desc_in")
 
                 if st.button("💾 حفظ في ملف residence.xlsx", type="primary", use_container_width=True):
@@ -753,9 +771,9 @@ if st.session_state.active_tab == "camera":
                             car_desc,
                             "",
                         )
-                        st.session_state["cam_name_input"] = ""
-                        st.session_state["cam_phone_input"] = ""
-                        st.session_state["cam_apt_type_select"] = ""
+                        st.session_state["fetched_cam_name"] = ""
+                        st.session_state["fetched_cam_phone"] = ""
+                        st.session_state["fetched_cam_apt_type"] = ""
                         st.success("✅ تم حفظ السيارة بنجاح في ملف residence.xlsx!")
                         st.rerun()
                     else:
@@ -826,12 +844,12 @@ elif st.session_state.active_tab == "search":
 elif st.session_state.active_tab == "add":
     st.subheader("➕ تسجيل سيارة يدوياً")
 
-    if "manual_name_input" not in st.session_state:
-        st.session_state["manual_name_input"] = ""
-    if "manual_phone_input" not in st.session_state:
-        st.session_state["manual_phone_input"] = ""
-    if "manual_apt_type_select" not in st.session_state:
-        st.session_state["manual_apt_type_select"] = ""
+    if "fetched_manual_name" not in st.session_state:
+        st.session_state["fetched_manual_name"] = ""
+    if "fetched_manual_phone" not in st.session_state:
+        st.session_state["fetched_manual_phone"] = ""
+    if "fetched_manual_apt_type" not in st.session_state:
+        st.session_state["fetched_manual_apt_type"] = ""
 
     c1, c2, c3 = st.columns([2, 1, 1])
     with c1:
@@ -855,27 +873,27 @@ elif st.session_state.active_tab == "add":
         if st.button("جلب ⚡", key="m_fetch_btn", use_container_width=True):
             m_data = get_apartment_info(m_bld, m_apt)
             if m_data:
-                st.session_state["manual_name_input"] = m_data["resident_name"]
-                st.session_state["manual_phone_input"] = m_data["phone"]
-                st.session_state["manual_apt_type_select"] = m_data["apartment_type"]
+                st.session_state["fetched_manual_name"] = m_data["resident_name"]
+                st.session_state["fetched_manual_phone"] = m_data["phone"]
+                st.session_state["fetched_manual_apt_type"] = m_data["apartment_type"]
                 st.rerun()
             else:
                 st.warning("⚠️ لم يتم العثور على شقة بهذه الأرقام في ملف fm6.xlsx.")
 
     c_ma1, c_ma2 = st.columns(2)
     with c_ma1:
-        curr_m_type = st.session_state.get("manual_apt_type_select", "")
+        curr_m_type = st.session_state.get("fetched_manual_apt_type", "")
         m_type_idx = apt_types_list.index(curr_m_type) if curr_m_type in apt_types_list else 0
         m_apt_type = st.selectbox(
             "نوع الشقة:",
             apt_types_list,
             index=m_type_idx,
-            key="manual_apt_type_select",
+            key="manual_apt_type_widget",
         )
     with c_ma2:
-        name = st.text_input("اسم الساكن", value=st.session_state.get("manual_name_input", ""), placeholder="الاسم الكامل", key="manual_name_input")
+        name = st.text_input("اسم الساكن", value=st.session_state.get("fetched_manual_name", ""), placeholder="الاسم الكامل", key="manual_name_widget")
 
-    phone = st.text_input("رقم الهاتف", value=st.session_state.get("manual_phone_input", ""), placeholder="06XXXXXXXX", key="manual_phone_input")
+    phone = st.text_input("رقم الهاتف", value=st.session_state.get("fetched_manual_phone", ""), placeholder="06XXXXXXXX", key="manual_phone_widget")
     car_desc = st.text_input("نوع ولون السيارة", placeholder="مثال: داسيا بيضاء", key="m_car_desc")
 
     if st.button("💾 حفظ في ملف residence.xlsx", type="primary", use_container_width=True):
@@ -901,9 +919,9 @@ elif st.session_state.active_tab == "add":
                     car_desc,
                     "",
                 )
-                st.session_state["manual_name_input"] = ""
-                st.session_state["manual_phone_input"] = ""
-                st.session_state["manual_apt_type_select"] = ""
+                st.session_state["fetched_manual_name"] = ""
+                st.session_state["fetched_manual_phone"] = ""
+                st.session_state["fetched_manual_apt_type"] = ""
                 st.success("✅ تم حفظ السيارة في ملف residence.xlsx بنجاح!")
                 st.rerun()
         else:
@@ -970,7 +988,7 @@ elif st.session_state.active_tab == "admin":
             st.download_button(
                 label="📥 تنزيل النسخة المحينة (residence.xlsx)",
                 data=towrite,
-                file_name=f"residence.xlsx",
+                file_name="residence.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
             )
@@ -1078,7 +1096,7 @@ elif st.session_state.active_tab == "admin":
             st.info("لا توجد سيارات مسجلة بعد.")
 
         st.markdown("---")
-        with st.expander("📤 رفع واستبدال ملف residence.xlsx بالكامل يدpipe"):
+        with st.expander("📤 رفع واستبدال ملف residence.xlsx بالكامل يدوياً"):
             uploaded_excel = st.file_uploader("اختر ملف Excel لاستبدال سيارات الموقف", type=["xlsx", "xls"])
             if uploaded_excel is not None:
                 df_up = pd.read_excel(uploaded_excel)
