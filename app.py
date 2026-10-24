@@ -217,7 +217,7 @@ def delete_record(record_id):
     save_df_to_residence_file()
 
 
-# ----------------- نافذة التعديل والحذف المنبثقة مع أزرار تأكيد -----------------
+# ----------------- نافذة التعديل والحذف المنبثقة -----------------
 @st.dialog("✏️ تعديل بيانات السيارة والساكن أو الحذف")
 def edit_car_dialog(row):
     rec_id = int(row["id"])
@@ -463,7 +463,7 @@ st.markdown(
     
     header[data-testid="stHeader"], #MainMenu, footer, .stDeployButton { display: none !important; }
     
-    /* إخفاء الجمل الإرشادية الإنجليزية نهائياً مثل Press Enter to apply */
+    /* إخفاء الجمل الإرشادية الإنجليزية نهائياً */
     [data-testid="InputInstructions"], 
     .stTextInput small, 
     div[data-testid="InputInstructions"] {
@@ -511,7 +511,7 @@ st.markdown(
         box-shadow: 0 2px 5px rgba(59, 130, 246, 0.08) !important;
     }
 
-    /* تأثير تمييز خانة الكتابة أثناء الوقوف عليها أو الكتابة فيها */
+    /* تمييز خانة الكتابة أثناء الوقوف عليها */
     .stTextInput > div > div > input:focus, 
     div[data-baseweb="input"]:focus-within {
         border-color: #1d4ed8 !important;
@@ -729,12 +729,12 @@ if st.session_state.active_tab == "camera":
 
                 c_p1, c_p2, c_p3 = st.columns([2, 1, 1])
                 with c_p1:
-                    p_num = st.text_input("أرقام اللوحة *", value=main_num, key="cam_pnum")
+                    p_num = st.text_input("الأرقام *", value=main_num, key="cam_pnum")
                 with c_p2:
                     idx = letters_list.index(detected_let) if detected_let in letters_list else 0
                     p_let = st.selectbox("الحرف", letters_list, index=idx, key="cam_plet")
                 with c_p3:
-                    p_reg = st.text_input("العمالة", value=region_num, placeholder="26", key="cam_preg")
+                    p_reg = st.text_input("العمالة", value=region_num, key="cam_preg")
 
                 car_type = st.radio("صفة الساكن/السيارة:", status_options, horizontal=True, key="cam_status_radio")
 
@@ -743,9 +743,9 @@ if st.session_state.active_tab == "camera":
 
                 col_bld_in, col_apt_in, col_fetch_btn = st.columns([1.5, 1.5, 1])
                 with col_bld_in:
-                    entered_bld = st.text_input("العمارة:", placeholder="مثال: 1", key="cam_bld_in")
+                    entered_bld = st.text_input("العمارة:", key="cam_bld_in")
                 with col_apt_in:
-                    entered_apt = st.text_input("الشقة:", placeholder="مثال: 1", key="cam_apt_in")
+                    entered_apt = st.text_input("الشقة:", key="cam_apt_in")
                 with col_fetch_btn:
                     st.write("")
                     st.write("")
@@ -768,9 +768,9 @@ if st.session_state.active_tab == "camera":
                         key="cam_apttype_widget",
                     )
                 with c_t2:
-                    name = st.text_input("اسم الساكن", placeholder="الاسم الكامل", key="cam_name_widget")
+                    name = st.text_input("اسم الساكن", key="cam_name_widget")
 
-                phone = st.text_input("رقم الهاتف", placeholder="06XXXXXXXX", key="cam_phone_widget")
+                phone = st.text_input("رقم الهاتف", key="cam_phone_widget")
                 car_desc = st.text_input("نوع ولون السيارة (اختياري)", key="cam_desc_in")
 
                 if st.button("✅ تأكيد حفظ السيارة في residence.xlsx", type="primary", use_container_width=True):
@@ -810,9 +810,9 @@ elif st.session_state.active_tab == "search":
     with st.expander("🏢 استعلام مباشر وسريع برقم العمارة والشقة (جلب ⚡)", expanded=True):
         col_sbld, col_sapt, col_sbtn = st.columns([1.5, 1.5, 1])
         with col_sbld:
-            search_bld = st.text_input("رقم العمارة:", placeholder="مثال: 25", key="search_bld_input")
+            search_bld = st.text_input("رقم العمارة:", key="search_bld_input")
         with col_sapt:
-            search_apt = st.text_input("رقم الشقة:", placeholder="مثال: 2", key="search_apt_input")
+            search_apt = st.text_input("رقم الشقة:", key="search_apt_input")
         with col_sbtn:
             st.write("")
             st.write("")
@@ -855,9 +855,8 @@ elif st.session_state.active_tab == "search":
         col_in, col_bt = st.columns([3.5, 1.2])
         with col_in:
             query = st.text_input(
-                "🔎 اكتب كلمة البحث هنا:",
+                "🔎 خانة البحث العام:",
                 value="",
-                placeholder="اكتب هنا: رقم اللوحة، اسم الساكن، رقم العمارة أو الشقة...",
                 label_visibility="collapsed",
             )
         with col_bt:
@@ -918,20 +917,20 @@ elif st.session_state.active_tab == "add":
 
     c1, c2, c3 = st.columns([2, 1, 1])
     with c1:
-        p_num = st.text_input("أرقام اللوحة *", placeholder="78954", key="m_p_num")
+        p_num = st.text_input("أرقام اللوحة *", key="m_p_num")
     with c2:
         p_let = st.selectbox("حرف اللوحة", letters_list, key="m_p_let")
     with c3:
-        p_reg = st.text_input("العمالة", placeholder="26", key="m_p_reg")
+        p_reg = st.text_input("العمالة", key="m_p_reg")
 
     car_type = st.radio("صفة الساكن:", status_options, horizontal=True, key="m_car_type")
 
     st.markdown("🏢 **تحديد العمارة والشقة:**")
     col_mbld, col_mapt, col_mbtn = st.columns([1.5, 1.5, 1])
     with col_mbld:
-        m_bld = st.text_input("العمارة:", placeholder="مثال: 1", key="m_bld_in")
+        m_bld = st.text_input("العمارة:", key="m_bld_in")
     with col_mapt:
-        m_apt = st.text_input("الشقة:", placeholder="مثال: 1", key="m_apt_in")
+        m_apt = st.text_input("الشقة:", key="m_apt_in")
     with col_mbtn:
         st.write("")
         st.write("")
@@ -956,16 +955,14 @@ elif st.session_state.active_tab == "add":
     with c_ma2:
         name = st.text_input(
             "اسم الساكن",
-            placeholder="الاسم الكامل",
             key="manual_name_widget"
         )
 
     phone = st.text_input(
         "رقم الهاتف",
-        placeholder="06XXXXXXXX",
         key="manual_phone_widget"
     )
-    car_desc = st.text_input("نوع ولون السيارة", placeholder="مثال: داسيا بيضاء", key="m_car_desc")
+    car_desc = st.text_input("نوع ولون السيارة", key="m_car_desc")
 
     if st.button("✅ تأكيد تسجيل السيارة في residence.xlsx", type="primary", use_container_width=True):
         if p_num:
@@ -1011,7 +1008,6 @@ elif st.session_state.active_tab == "admin":
                 "🔐 أدخل القن السري للوصول للوحة الإدارة:",
                 type="password",
                 value="",
-                placeholder="أدخل القن السري هنا...",
             )
             pin_submit = st.form_submit_button("🔓 تأكيد الدخول", type="primary", use_container_width=True)
 
