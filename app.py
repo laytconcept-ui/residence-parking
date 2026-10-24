@@ -397,7 +397,7 @@ def analyze_plate_with_vision(image_bytes):
         """
 
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+model="gemini-3.8-flash",
             contents=[
                 types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
                 prompt
