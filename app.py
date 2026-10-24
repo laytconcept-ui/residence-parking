@@ -17,7 +17,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ----------------- تثبيت أيقونة التطبيق وتوجيه الكاميرا الخلفية تلقائياً -----------------
+# ----------------- تثبيت أيقونة السيارة لمتصفح الهاتف -----------------
 st.markdown(
     """
     <head>
@@ -27,21 +27,6 @@ st.markdown(
         <meta name="apple-mobile-web-app-capable" content="yes">
         <meta name="theme-color" content="#2563eb">
     </head>
-    <script>
-    // إجبار متصفح الهاتف على فتح الكاميرا الخلفية (facingMode: environment)
-    navigator.mediaDevices.getUserMedia = (function(origGetUserMedia) {
-        return function(constraints) {
-            if (constraints && constraints.video) {
-                if (typeof constraints.video === 'object') {
-                    constraints.video.facingMode = { ideal: "environment" };
-                } else {
-                    constraints.video = { facingMode: { ideal: "environment" } };
-                }
-            }
-            return origGetUserMedia.apply(this, arguments);
-        };
-    })(navigator.mediaDevices.getUserMedia);
-    </script>
 """,
     unsafe_allow_html=True,
 )
@@ -380,7 +365,7 @@ def get_apartment_info(bld_num, apt_num):
     return None
 
 
-# ----------------- التعرف فائق السرعة عبر الذكاء البصري -----------------
+# ----------------- التعرف فائق السرعة والدقة عبر الذكاء البصري -----------------
 def analyze_plate_with_vision(image_bytes):
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -393,7 +378,7 @@ def analyze_plate_with_vision(image_bytes):
         return None, "يرجى إضافة مفتاح GEMINI_API_KEY في إعدادات Streamlit Secrets."
 
     try:
-        # ضغط الصورة لتسريع الاستجابة
+        # ضغط وتصغير الصورة بنسبة 90% لتسريع الرفع وجعل التحليل فورياً
         pil_img = Image.open(io.BytesIO(image_bytes))
         pil_img.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
         
@@ -672,7 +657,7 @@ with nav_c4:
 
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
-# ==================== 1. قسم الكاميرا ====================
+# ==================== 1. قسم الكاميرا (الذكاء البصري الفائق والسريع) ====================
 if st.session_state.active_tab == "camera":
     if st.session_state.get("reset_cam_form", False):
         st.session_state["cam_bld_in"] = ""
@@ -694,26 +679,13 @@ if st.session_state.active_tab == "camera":
     if "cam_desc_in" not in st.session_state:
         st.session_state["cam_desc_in"] = ""
 
-    st.subheader("📷 التقاط لوحة السيارة")
-
-    cam_tab1, cam_tab2 = st.tabs(["📸 كاميرا الشاشة المباشرة", "📱 الكاميرا الخلفية الأصلية للهاتف"])
-
-    camera_file = None
-    with cam_tab1:
-        camera_file = st.camera_input("التقاط عبر الكاميرا الخلفية المباشرة")
-
-    with cam_tab2:
-        uploaded_camera = st.file_uploader(
-            "📷 انقر هنا لفتح الكاميرا الخلفية للهاتف والتقاط الصورة مباشرة:",
-            type=["jpg", "jpeg", "png"],
-            key="mobile_env_camera_upload"
-        )
-        if uploaded_camera is not None:
-            camera_file = uploaded_camera
+    st.subheader("📷 التقاط لوحة السيارة بالذكاء البصري")
+    camera_file = st.camera_input("")
 
     if camera_file is not None:
         img_bytes = camera_file.getvalue()
 
+        # معالجة الصورة فقط عند التقاط صورة جديدة
         if st.session_state.get("last_processed_img") != img_bytes:
             with st.spinner("⚡ جاري استيعاب الصورة وقراءة ترقيم اللوحة بالذكاء البصري..."):
                 plate_data, err = analyze_plate_with_vision(img_bytes)
