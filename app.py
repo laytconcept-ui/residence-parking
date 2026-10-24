@@ -17,6 +17,7 @@ st.set_page_config(
 )
 
 # ----------------- تثبيت أيقونة السيارة لمتصفح الهاتف وتنسيق CSS -----------------
+# ----------------- تثبيت أيقونة السيارة لمتصفح الهاتف -----------------
 st.markdown(
     """
     <head>
@@ -26,6 +27,9 @@ st.markdown(
         <meta name="apple-mobile-web-app-capable" content="yes">
         <meta name="theme-color" content="#2563eb">
     </head>
+""",
+    unsafe_allow_html=True,
+)
     <script>
     const linkIcon = document.createElement('link');
     linkIcon.rel = 'icon';
