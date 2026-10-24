@@ -375,52 +375,63 @@ def get_apartment_info(bld_num, apt_num):
     return None
 
 
-# ----------------- معالجة الصور وفك تشفير اللوحات -----------------
-def detect_and_crop_license_plate(image_np):
-    try:
-        h, w = image_np.shape[:2]
-        gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
-        blur = cv2.bilateralFilter(gray, 11, 17, 17)
-        edged = cv2.Canny(blur, 30, 200)
-
-        contours, _ = cv2.findContours(edged.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        contours = sorted(contours, key=cv2.contourArea, reverse=True)[:30]
-
-        plate_crop = None
-        for c in contours:
-            peri = cv2.arcLength(c, True)
-            approx = cv2.approxPolyDP(c, 0.02 * peri, True)
-
-            if len(approx) == 4:
-                x, y, cw, ch = cv2.boundingRect(approx)
-                aspect_ratio = float(cw) / ch
-
-                if 2.3 < aspect_ratio < 6.0 and cw > (w * 0.18) and ch > (h * 0.04) and (cw * ch) > 2500:
-                    pad_x = int(cw * 0.04)
-                    pad_y = int(ch * 0.08)
-                    y1 = max(0, y - pad_y)
-                    y2 = min(h, y + ch + pad_y)
-                    x1 = max(0, x - pad_x)
-                    x2 = min(w, x + cw + pad_x)
-
-                    plate_crop = image_np[y1:y2, x1:x2]
-                    break
-
-        if plate_crop is not None:
-            plate_resized = cv2.resize(plate_crop, (600, 140), interpolation=cv2.INTER_CUBIC)
-            return plate_resized, True
-    except Exception:
-        pass
-
-    return image_np, False
-
-
+# ----------------- معالجة وفلاتر الصور المتقدمة لعزل وتوضيح الأرقام -----------------
 def clean_image_for_ocr(image_np):
     if len(image_np.shape) == 3:
         gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
     else:
         gray = image_np
-    return cv2.equalizeHist(gray)
+
+    # 1. تكبير الصورة لزيادة دقة الفجوات داخل 8 و 0 و 6
+    h, w = gray.shape[:2]
+    scaled = cv2.resize(gray, (w * 2, h * 2), interpolation=cv2.INTER_CUBIC)
+
+    # 2. إزالة التشويش وترددات الشاشات الرقمية
+    denoised = cv2.fastNlMeansDenoising(scaled, h=10)
+
+    # 3. توضيح التباين الموضعي بدقة (CLAHE)
+    clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+    enhanced = clahe.apply(denoised)
+
+    # 4. تحويل الصورة إلى ثنائية نقية (Otsu Thresholding)
+    _, binary = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    
+    return binary
+
+
+def detect_and_crop_license_plate(image_np):
+    try:
+        h, w = image_np.shape[:2]
+        gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
+        blur = cv2.GaussianBlur(gray, (5, 5), 0)
+        edged = cv2.Canny(blur, 50, 150)
+
+        contours, _ = cv2.findContours(edged.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)[:25]
+
+        plate_crop = None
+        for c in contours:
+            x, y, cw, ch = cv2.boundingRect(c)
+            aspect_ratio = float(cw) / ch if ch > 0 else 0
+
+            # المعايير القياسية للوحة الترقيم المغربية
+            if 2.2 <= aspect_ratio <= 6.5 and cw > (w * 0.25) and ch > (h * 0.05):
+                pad_x = int(cw * 0.03)
+                pad_y = int(ch * 0.06)
+                y1 = max(0, y - pad_y)
+                y2 = min(h, y + ch + pad_y)
+                x1 = max(0, x - pad_x)
+                x2 = min(w, x + cw + pad_x)
+
+                plate_crop = image_np[y1:y2, x1:x2]
+                break
+
+        if plate_crop is not None:
+            return plate_crop, True
+    except Exception:
+        pass
+
+    return image_np, False
 
 
 def parse_moroccan_plate(ocr_results):
@@ -503,7 +514,7 @@ def get_ocr_reader():
     return easyocr.Reader(["ar", "en"], gpu=False)
 
 
-# ----------------- تصميم واجهة التطبيق CSS (تمت موازاة وتوسيط العناوين) -----------------
+# ----------------- تصميم واجهة التطبيق CSS (توسيط العناوين) -----------------
 st.markdown(
     """
 <style>
@@ -516,7 +527,7 @@ st.markdown(
         text-align: right;
     }
     
-    /* توسيط جميع الترويسات والعناوين الرئيسية */
+    /* توسيط جميع الترويسات والعناوين */
     h1, h2, h3, [data-testid="stHeadingWithActionElements"] h2, .section-header {
         text-align: center !important;
         justify-content: center !important;
@@ -714,14 +725,18 @@ if st.session_state.active_tab == "camera":
         image = Image.open(io.BytesIO(camera_file.getvalue()))
         image_np = np.array(image)
 
-        with st.spinner("⚡ جاري استشعار اللوحة وقراءة الترقيم بدقة..."):
+        with st.spinner("⚡ جاري استشعار اللوحة وتطبيق فلاتر التوضيح بالذكاء الاصطناعي..."):
             cropped_plate, was_cropped = detect_and_crop_license_plate(image_np)
             processed_np = clean_image_for_ocr(cropped_plate)
+            
+            # قراءة مع تكبير وتحسين استشعار الأرقام
             results = reader.readtext(
                 processed_np,
                 allowlist="0123456789أبدهوجحيخزرWW -|[]()/",
                 detail=1,
                 paragraph=False,
+                mag_ratio=1.5,
+                slope_ths=0.2
             )
 
         main_num, detected_let, region_num, full_display = parse_moroccan_plate(results)
