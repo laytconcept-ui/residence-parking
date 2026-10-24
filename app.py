@@ -17,7 +17,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ----------------- تثبيت أيقونة السيارة لمتصفح الهاتف وتنسيق CSS -----------------
+# ----------------- تثبيت أيقونة السيارة لمتصفح الهاتف -----------------
 st.markdown(
     """
     <head>
@@ -365,7 +365,7 @@ def get_apartment_info(bld_num, apt_num):
     return None
 
 
-# ----------------- التعرف فائق الدقة عبر الذكاء البصري -----------------
+# ----------------- التعرف فائق السرعة والدقة عبر الذكاء البصري -----------------
 def analyze_plate_with_vision(image_bytes):
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -378,32 +378,40 @@ def analyze_plate_with_vision(image_bytes):
         return None, "يرجى إضافة مفتاح GEMINI_API_KEY في إعدادات Streamlit Secrets."
 
     try:
+        # ضغط وتصغير الصورة بنسبة 90% لتسريع الرفع وجعل التحليل فورياً
+        pil_img = Image.open(io.BytesIO(image_bytes))
+        pil_img.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+        
+        buffered = io.BytesIO()
+        pil_img.save(buffered, format="JPEG", quality=80, optimize=True)
+        optimized_bytes = buffered.getvalue()
+
         client = genai.Client(api_key=api_key)
         prompt = """
-        أنت خبير في التعرف على لوحات ترقيم السيارات المغربية.
-        قم باستخراج تفاصيل لوحة ترقيم السيارة من الصورة المرفقة.
-        اللوحة المغربية تتكون عادة من:
-        1. رقم تسجيل (أرقام).
-        2. حرف عربي فاصل (مثل: أ، ب، د، هـ، و، ج، ح، ي، ز، ر، أو WW).
-        3. رقم العمالة/الجهة (رقم من خانة أو خانتين يقع عادة في أقصى اليسار مثل 26).
+        استخرج بيانات لوحة ترقيم السيارة المغربية من الصورة مباشرة وبسرعة:
+        - plate_number: أرقام التسجيل فقط.
+        - plate_letter: الحرف العربي فقط (أ، ب، د، هـ، و، ج، ح، ي، ز، ر، أو WW).
+        - plate_region: رقم العمالة فقط (مثل 26).
+        - car_desc: نوع ولون السيارة باختصار (مثال: فورد رمادية).
         
-        أرجع النتيجة بصيغة JSON حصرية دون أي نصوص إضافية:
+        أرجع النتيجة بصيغة JSON حصرية:
         {
-            "plate_number": "1591",
-            "plate_letter": "د",
-            "plate_region": "26",
-            "car_desc": "نوع ولون السيارة إن كان واضحاً مثل فورد فضية"
+            "plate_number": "",
+            "plate_letter": "",
+            "plate_region": "",
+            "car_desc": ""
         }
         """
 
         response = client.models.generate_content(
-model="gemini-3.8-flash",
+            model="gemini-3.8-flash",
             contents=[
-                types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
+                types.Part.from_bytes(data=optimized_bytes, mime_type="image/jpeg"),
                 prompt
             ],
             config=types.GenerateContentConfig(
-                response_mime_type="application/json"
+                response_mime_type="application/json",
+                temperature=0.1
             )
         )
 
@@ -614,7 +622,7 @@ st.markdown(
     <h2 style="margin: 0; font-size: 21px; color: white;">🚗 تدبير موقف سيارات إقامة نفيس</h2>
     <div style="font-size: 11px; opacity: 0.85;">منظومة تسيير متكاملة عبر ملف residence.xlsx</div>
     <div style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; margin-top: 4px;">
-        Excel Local Mode ⚡
+        AI Vision Engine ⚡
     </div>
 </div>
 """,
@@ -649,7 +657,7 @@ with nav_c4:
 
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
-# ==================== 1. قسم الكاميرا (الذكاء البصري الفائق) ====================
+# ==================== 1. قسم الكاميرا (الذكاء البصري الفائق والسريع) ====================
 if st.session_state.active_tab == "camera":
     if st.session_state.get("reset_cam_form", False):
         st.session_state["cam_bld_in"] = ""
@@ -677,9 +685,9 @@ if st.session_state.active_tab == "camera":
     if camera_file is not None:
         img_bytes = camera_file.getvalue()
 
-        # تحليل الصورة عبر الذكاء الاصطناعي فقط عند التقاط صورة جديدة
+        # معالجة الصورة فقط عند التقاط صورة جديدة
         if st.session_state.get("last_processed_img") != img_bytes:
-            with st.spinner("⚡ جاري استيعاب الصورة وقراءة ترقيم اللوحة بالذكاء الاصطناعي..."):
+            with st.spinner("⚡ جاري استيعاب الصورة وقراءة ترقيم اللوحة بالذكاء البصري..."):
                 plate_data, err = analyze_plate_with_vision(img_bytes)
                 if err:
                     st.error(err)
@@ -710,7 +718,7 @@ if st.session_state.active_tab == "camera":
 
                 c_p1, c_p2, c_p3 = st.columns([2, 1, 1])
                 with c_p1:
-                    p_num = st.text_input("الأرقام *", value=main_num, key="cam_pnum")
+                    p_num = st.text_input("أرقام اللوحة *", value=main_num, key="cam_pnum")
                 with c_p2:
                     idx = letters_list.index(detected_let) if detected_let in letters_list else 0
                     p_let = st.selectbox("الحرف", letters_list, index=idx, key="cam_plet")
