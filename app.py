@@ -16,7 +16,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ----------------- تثبيت أيقونة السيارة لمتصفح الهاتف (كود نظيف تماماً) -----------------
+# ----------------- تثبيت أيقونة السيارة لمتصفح الهاتف وتنسيق CSS -----------------
 st.markdown(
     """
     <head>
@@ -452,7 +452,6 @@ st.markdown(
     
     header[data-testid="stHeader"], #MainMenu, footer, .stDeployButton { display: none !important; }
     
-    /* إخفاء الجمل الإرشادية الإنجليزية نهائياً */
     [data-testid="InputInstructions"], 
     .stTextInput small, 
     div[data-testid="InputInstructions"] {
@@ -468,7 +467,6 @@ st.markdown(
         text-align: right;
     }
     
-    /* توسيط جميع الترويسات والعناوين */
     h1, h2, h3, [data-testid="stHeadingWithActionElements"] h2, .section-header {
         text-align: center !important;
         justify-content: center !important;
@@ -489,7 +487,6 @@ st.markdown(
         gap: 6px;
     }
 
-    /* إبراز خانات الإدخال والكتابة */
     div[data-baseweb="input"], .stTextInput > div > div > input {
         background-color: #ffffff !important;
         border: 2px solid #3b82f6 !important;
@@ -683,9 +680,9 @@ with nav_c4:
 
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
-# ==================== 1. قسم الكاميرا ====================
+# ==================== 1. قسم الكاميرا (مع ميزة الجلب اللحظي للساكن) ====================
 if st.session_state.active_tab == "camera":
-    # معالجة تفريغ الحقول قبل إنشاء الـ widgets لمنع الخطأ البرمجي
+    # معالجة تفريغ الحقول قبل إنشاء الـ widgets لمنع أخطاء Streamlit
     if st.session_state.get("reset_cam_form", False):
         st.session_state["cam_bld_in"] = ""
         st.session_state["cam_apt_in"] = ""
@@ -696,6 +693,14 @@ if st.session_state.active_tab == "camera":
         st.session_state["cam_phone_widget"] = ""
         st.session_state["cam_apttype_widget"] = apt_types_list[0]
         st.session_state["reset_cam_form"] = False
+
+    # تهيئة أولية للمفاتيح
+    if "cam_name_widget" not in st.session_state:
+        st.session_state["cam_name_widget"] = ""
+    if "cam_phone_widget" not in st.session_state:
+        st.session_state["cam_phone_widget"] = ""
+    if "cam_apttype_widget" not in st.session_state:
+        st.session_state["cam_apttype_widget"] = apt_types_list[0]
 
     st.subheader("📷 التقاط لوحة السيارة")
     camera_file = st.camera_input("")
@@ -729,7 +734,7 @@ if st.session_state.active_tab == "camera":
 
                 c_p1, c_p2, c_p3 = st.columns([2, 1, 1])
                 with c_p1:
-                    p_num = st.text_input("الأرقام *", value=main_num, key="cam_pnum")
+                    p_num = st.text_input("أرقام اللوحة *", value=main_num, key="cam_pnum")
                 with c_p2:
                     idx = letters_list.index(detected_let) if detected_let in letters_list else 0
                     p_let = st.selectbox("الحرف", letters_list, index=idx, key="cam_plet")
@@ -739,7 +744,7 @@ if st.session_state.active_tab == "camera":
                 car_type = st.radio("صفة الساكن/السيارة:", status_options, horizontal=True, key="cam_status_radio")
 
                 st.markdown("---")
-                st.markdown("🏢 **تحديد العمارة والشقة لجلب المعطيات بدقة:**")
+                st.markdown("🏢 **تحديد العمارة والشقة لجلب الساكن فوراً:**")
 
                 col_bld_in, col_apt_in, col_fetch_btn = st.columns([1.5, 1.5, 1])
                 with col_bld_in:
@@ -752,10 +757,11 @@ if st.session_state.active_tab == "camera":
                     if st.button("جلب ⚡", key="cam_fetch_btn", use_container_width=True):
                         data = get_apartment_info(entered_bld, entered_apt)
                         if data:
+                            # تحديث مفاتيح الـ Widgets فورياً في session_state لتظهر فوراً
                             st.session_state["cam_name_widget"] = data["resident_name"]
                             st.session_state["cam_phone_widget"] = data["phone"]
                             apt_t = data["apartment_type"]
-                            st.session_state["cam_apttype_widget"] = apt_t if apt_t in apt_types_list else ""
+                            st.session_state["cam_apttype_widget"] = apt_t if apt_t in apt_types_list else apt_types_list[0]
                             st.rerun()
                         else:
                             st.warning("⚠️ لم يتم العثور على شقة بهذه البيانات في fm6.xlsx.")
@@ -763,7 +769,7 @@ if st.session_state.active_tab == "camera":
                 c_t1, c_t2 = st.columns(2)
                 with c_t1:
                     apartment_type = st.selectbox(
-                        "نوع الشقة (F2, F3, ...):",
+                        "نوع الشقة:",
                         apt_types_list,
                         key="cam_apttype_widget",
                     )
@@ -903,7 +909,6 @@ elif st.session_state.active_tab == "search":
 
 # ==================== 3. قسم التسجيل اليدوي ====================
 elif st.session_state.active_tab == "add":
-    # معالجة تفريغ الحقول قبل إنشاء الـ widgets لمنع الخطأ البرمجي
     if st.session_state.get("reset_manual_form", False):
         st.session_state["m_p_num"] = ""
         st.session_state["m_p_reg"] = ""
@@ -949,7 +954,7 @@ elif st.session_state.active_tab == "add":
                 st.session_state["manual_name_widget"] = m_data["resident_name"]
                 st.session_state["manual_phone_widget"] = m_data["phone"]
                 apt_t = m_data["apartment_type"]
-                st.session_state["manual_apttype_widget"] = apt_t if apt_t in apt_types_list else ""
+                st.session_state["manual_apttype_widget"] = apt_t if apt_t in apt_types_list else apt_types_list[0]
                 st.rerun()
             else:
                 st.warning("⚠️ لم يتم العثور على شقة بهذه الأرقام في ملف fm6.xlsx.")
