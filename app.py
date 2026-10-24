@@ -16,8 +16,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ----------------- تثبيت أيقونة السيارة لمتصفح الهاتف وتنسيق CSS -----------------
-# ----------------- تثبيت أيقونة السيارة لمتصفح الهاتف -----------------
+# ----------------- تثبيت أيقونة السيارة لمتصفح الهاتف (كود نظيف تماماً) -----------------
 st.markdown(
     """
     <head>
@@ -27,20 +26,6 @@ st.markdown(
         <meta name="apple-mobile-web-app-capable" content="yes">
         <meta name="theme-color" content="#2563eb">
     </head>
-""",
-    unsafe_allow_html=True,
-)
-    <script>
-    const linkIcon = document.createElement('link');
-    linkIcon.rel = 'icon';
-    linkIcon.href = 'https://cdn-icons-png.flaticon.com/512/3202/3202926.png';
-    document.head.appendChild(linkIcon);
-
-    const linkApple = document.createElement('link');
-    linkApple.rel = 'apple-touch-icon';
-    linkApple.href = 'https://cdn-icons-png.flaticon.com/512/3202/3202926.png';
-    document.head.appendChild(linkApple);
-    </script>
 """,
     unsafe_allow_html=True,
 )
