@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import time
 from datetime import datetime
 import json
 import numpy as np
@@ -17,7 +18,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ----------------- تثبيت أيقونة السيارة لمتصفح الهاتف -----------------
+# ----------------- تثبيت أيقونة التطبيق وتوجيه الكاميرا الخلفية تلقائياً -----------------
 st.markdown(
     """
     <head>
@@ -27,6 +28,21 @@ st.markdown(
         <meta name="apple-mobile-web-app-capable" content="yes">
         <meta name="theme-color" content="#2563eb">
     </head>
+    <script>
+    // إجبار متصفح الهاتف على فتح الكاميرا الخلفية
+    navigator.mediaDevices.getUserMedia = (function(origGetUserMedia) {
+        return function(constraints) {
+            if (constraints && constraints.video) {
+                if (typeof constraints.video === 'object') {
+                    constraints.video.facingMode = { ideal: "environment" };
+                } else {
+                    constraints.video = { facingMode: { ideal: "environment" } };
+                }
+            }
+            return origGetUserMedia.apply(this, arguments);
+        };
+    })(navigator.mediaDevices.getUserMedia);
+    </script>
 """,
     unsafe_allow_html=True,
 )
@@ -365,7 +381,7 @@ def get_apartment_info(bld_num, apt_num):
     return None
 
 
-# ----------------- التعرف فائق السرعة والدقة عبر الذكاء البصري -----------------
+# ----------------- التعرف فائق السرعة عبر الذكاء البصري مع حماية 503 -----------------
 def analyze_plate_with_vision(image_bytes):
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -378,7 +394,6 @@ def analyze_plate_with_vision(image_bytes):
         return None, "يرجى إضافة مفتاح GEMINI_API_KEY في إعدادات Streamlit Secrets."
 
     try:
-        # ضغط وتصغير الصورة بنسبة 90% لتسريع الرفع وجعل التحليل فورياً
         pil_img = Image.open(io.BytesIO(image_bytes))
         pil_img.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
         
@@ -403,20 +418,37 @@ def analyze_plate_with_vision(image_bytes):
         }
         """
 
-        response = client.models.generate_content(
-            model="gemini-3.8-flash",
-            contents=[
-                types.Part.from_bytes(data=optimized_bytes, mime_type="image/jpeg"),
-                prompt
-            ],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0.1
-            )
-        )
+        candidate_models = ["gemini-3.8-flash", "gemini-1.5-flash"]
+        last_error = ""
 
-        result_json = json.loads(response.text)
-        return result_json, None
+        for model_name in candidate_models:
+            for attempt in range(2):
+                try:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=[
+                            types.Part.from_bytes(data=optimized_bytes, mime_type="image/jpeg"),
+                            prompt
+                        ],
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            temperature=0.1
+                        )
+                    )
+                    clean_txt = response.text.strip()
+                    clean_txt = re.sub(r"^```json\s*", "", clean_txt)
+                    clean_txt = re.sub(r"\s*```$", "", clean_txt)
+                    result_json = json.loads(clean_txt)
+                    return result_json, None
+                except Exception as ex:
+                    last_error = str(ex)
+                    if "503" in last_error or "UNAVAILABLE" in last_error:
+                        time.sleep(1.2)
+                        continue
+                    else:
+                        break
+
+        return None, f"خوادم المعالجة مشغولة حالياً، يرجى إعادة الضغط على الالتقاط: {last_error}"
     except Exception as e:
         return None, f"خطأ أثناء التحليل: {e}"
 
@@ -657,7 +689,7 @@ with nav_c4:
 
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
-# ==================== 1. قسم الكاميرا (الذكاء البصري الفائق والسريع) ====================
+# ==================== 1. قسم الكاميرا ====================
 if st.session_state.active_tab == "camera":
     if st.session_state.get("reset_cam_form", False):
         st.session_state["cam_bld_in"] = ""
@@ -679,13 +711,26 @@ if st.session_state.active_tab == "camera":
     if "cam_desc_in" not in st.session_state:
         st.session_state["cam_desc_in"] = ""
 
-    st.subheader("📷 التقاط لوحة السيارة بالذكاء البصري")
-    camera_file = st.camera_input("")
+    st.subheader("📷 التقاط لوحة السيارة")
+
+    cam_tab1, cam_tab2 = st.tabs(["📸 كاميرا الشاشة المباشرة", "📱 الكاميرا الخلفية الأصلية للهاتف"])
+
+    camera_file = None
+    with cam_tab1:
+        camera_file = st.camera_input("التقاط عبر الكاميرا الخلفية المباشرة")
+
+    with cam_tab2:
+        uploaded_camera = st.file_uploader(
+            "📷 انقر هنا لفتح الكاميرا الخلفية للهاتف والتقاط الصورة مباشرة:",
+            type=["jpg", "jpeg", "png"],
+            key="mobile_env_camera_upload"
+        )
+        if uploaded_camera is not None:
+            camera_file = uploaded_camera
 
     if camera_file is not None:
         img_bytes = camera_file.getvalue()
 
-        # معالجة الصورة فقط عند التقاط صورة جديدة
         if st.session_state.get("last_processed_img") != img_bytes:
             with st.spinner("⚡ جاري استيعاب الصورة وقراءة ترقيم اللوحة بالذكاء البصري..."):
                 plate_data, err = analyze_plate_with_vision(img_bytes)
@@ -979,113 +1024,3 @@ elif st.session_state.active_tab == "add":
                     p_let,
                     p_reg,
                     full_plate_str,
-                    car_type,
-                    car_desc,
-                    "",
-                )
-                st.session_state["reset_manual_form"] = True
-                st.success("✅ تم حفظ السيارة في ملف residence.xlsx بنجاح!")
-                st.rerun()
-        else:
-            st.error("أدخل رقم اللوحة على الأقل.")
-
-# ==================== 4. قسم الإدارة وتنزيل Excel ====================
-elif st.session_state.active_tab == "admin":
-    st.subheader("🔒 إدارة المنظومة وملف residence.xlsx")
-
-    if "admin_authenticated" not in st.session_state:
-        st.session_state.admin_authenticated = False
-
-    if not st.session_state.admin_authenticated:
-        with st.form("pin_form"):
-            admin_pass = st.text_input(
-                "🔐 أدخل القن السري للوصول للوحة الإدارة:",
-                type="password",
-                value="",
-            )
-            pin_submit = st.form_submit_button("🔓 تأكيد الدخول", type="primary", use_container_width=True)
-
-        if pin_submit:
-            if admin_pass == ADMIN_PIN:
-                st.session_state.admin_authenticated = True
-                st.rerun()
-            else:
-                st.error("⛔ القن السري غير صحيح. يرجى إعادة المحاولة.")
-
-    if st.session_state.admin_authenticated:
-        st.success("🔓 تم الدخول كمسؤول للمنظومة.")
-        df = get_all_records()
-
-        st.markdown("---")
-        df_fm6 = load_fm6_directory()
-        if not df_fm6.empty:
-            st.success(f"✅ تم تحميل دليل الشقق بنجاح من (fm6.xlsx): **{len(df_fm6)} شقة** مسجلة وجاهزة للربط الفوري.")
-        else:
-            st.warning("⚠️ لم يتم العثور على ملف fm6.xlsx بجانب app.py في المستودع.")
-
-        if not df.empty:
-            st.markdown("---")
-            m1, m2, m3 = st.columns(3)
-            m1.metric("إجمالي السيارات في residence.xlsx", len(df))
-            m2.metric(
-                "مكتملة البيانات",
-                df["apartment"].replace("", np.nan).dropna().count(),
-            )
-            missing_count = df["apartment"].replace("", np.nan).isna().sum()
-            m3.metric("بحاجة لإكمال الشقة ⚠️", missing_count)
-
-            # تنزيل ملف الإكسيل المحين
-            st.markdown("---")
-            st.subheader("📥 تنزيل وتصدير ملف residence.xlsx المُحيّن")
-            
-            towrite = io.BytesIO()
-            with pd.ExcelWriter(towrite, engine="openpyxl") as writer:
-                df.to_excel(writer, index=False, sheet_name="السيارات")
-            towrite.seek(0)
-
-            st.download_button(
-                label="📥 تنزيل النسخة المحينة (residence.xlsx)",
-                data=towrite,
-                file_name="residence.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-            )
-
-            # ----------------- الجدول الشامل التفاعلي -----------------
-            st.markdown("---")
-            st.subheader("📋 الجدول الشامل للسيارات")
-            st.info("💡 **انقر على أي سطر في الجدول أسفله لفتح نافذة التعديل أو الحذف المباشر فوراً:**")
-
-            display_cols = ["id", "full_plate", "building", "apartment", "apartment_type", "resident_name", "phone", "car_type", "car_info", "created_at"]
-            df_display = df[[c for c in display_cols if c in df.columns]]
-
-            selection_event = st.dataframe(
-                df_display,
-                use_container_width=True,
-                hide_index=True,
-                on_select="rerun",
-                selection_mode="single-row",
-            )
-
-            selected_rows = selection_event.selection.get("rows", [])
-            if selected_rows:
-                selected_idx = selected_rows[0]
-                selected_car_row = df.iloc[selected_idx]
-                edit_car_dialog(selected_car_row)
-
-        else:
-            st.info("لا توجد سيارات مسجلة بعد.")
-
-        st.markdown("---")
-        with st.expander("📤 رفع واستبدال ملف residence.xlsx بالكامل يدوياً"):
-            uploaded_excel = st.file_uploader("اختر ملف Excel لاستبدال سيارات الموقف", type=["xlsx", "xls"])
-            if uploaded_excel is not None:
-                if st.button("✅ تأكيد استبدال الملف بالكامل", type="primary"):
-                    df_up = pd.read_excel(uploaded_excel)
-                    for c in ["id", "building", "apartment", "apartment_type", "resident_name", "phone", "plate_number", "plate_letter", "plate_region", "full_plate", "car_type", "car_info", "created_at", "notes"]:
-                        if c not in df_up.columns:
-                            df_up[c] = ""
-                    st.session_state.cars_df = df_up
-                    save_df_to_residence_file()
-                    st.success("✅ تم تحديث وتحميل بيانات ملف residence.xlsx بنجاح!")
-                    st.rerun()
