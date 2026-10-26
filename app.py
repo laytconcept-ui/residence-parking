@@ -379,7 +379,7 @@ def get_apartment_info(bld_num, apt_num):
     return None
 
 
-# ----------------- محرك Gemini الأصلي السريع والخفيف بدون مكتبات معقدة -----------------
+# ----------------- محرك Gemini المباشر والسريع والخالي من الأخطاء -----------------
 def analyze_plate_with_vision(image_bytes):
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -392,7 +392,7 @@ def analyze_plate_with_vision(image_bytes):
         return None, "يرجى إضافة مفتاح GEMINI_API_KEY في إعدادات Streamlit Secrets."
 
     try:
-        # 1. ضغط الصورة لتكون خفيفة جداً
+        # 1. تحويل وضغط الصورة
         pil_img = Image.open(io.BytesIO(image_bytes))
         if pil_img.mode in ("RGBA", "P"):
             pil_img = pil_img.convert("RGB")
@@ -402,8 +402,8 @@ def analyze_plate_with_vision(image_bytes):
         pil_img.save(buffered, format="JPEG", quality=75)
         img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-        # 2. إرسال الطلب المباشر عبر API الخفيف
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+        # 2. استخدام النموذج النشط المعتمد gemini-3.8-flash
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={api_key}"
         
         prompt = """
         استخرج بيانات لوحة السيارة المغربية بصيغة JSON حصرية فقط بدون كود ماركداون:
@@ -434,14 +434,17 @@ def analyze_plate_with_vision(image_bytes):
             }
         }
 
-        # محاولة الاتصال بالنموذج
-        res = requests.post(url, json=payload, timeout=12)
-        if res.status_code != 200:
-            # بديل تلقائي سريع
-            url_alt = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
-            res = requests.post(url_alt, json=payload, timeout=12)
-
+        res = requests.post(url, json=payload, timeout=15)
         data = res.json()
+
+        # 3. التحقق الآمن من استجابة Google لمنع خطأ candidates
+        if "error" in data:
+            err_msg = data["error"].get("message", "خطأ من خوادم الذكاء الاصطناعي")
+            return None, f"تنبيه: {err_msg}"
+
+        if "candidates" not in data or not data["candidates"]:
+            return None, "تعذر قراءة بيانات اللوحة من الصورة، يرجى إعادة الالتقاط بزاوية أوضح."
+
         raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
         clean_txt = re.sub(r"```json|```", "", raw_text).strip()
         result_json = json.loads(clean_txt)
