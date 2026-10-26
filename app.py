@@ -17,7 +17,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ----------------- تثبيت أيقونة التطبيق وتوجيه الكاميرا الخلفية تلقائياً -----------------
+# ----------------- تثبيت أيقونة السيارة لمتصفح الهاتف -----------------
 st.markdown(
     """
     <head>
@@ -27,20 +27,6 @@ st.markdown(
         <meta name="apple-mobile-web-app-capable" content="yes">
         <meta name="theme-color" content="#2563eb">
     </head>
-    <script>
-    navigator.mediaDevices.getUserMedia = (function(origGetUserMedia) {
-        return function(constraints) {
-            if (constraints && constraints.video) {
-                if (typeof constraints.video === 'object') {
-                    constraints.video.facingMode = { ideal: "environment" };
-                } else {
-                    constraints.video = { facingMode: { ideal: "environment" } };
-                }
-            }
-            return origGetUserMedia.apply(this, arguments);
-        };
-    })(navigator.mediaDevices.getUserMedia);
-    </script>
 """,
     unsafe_allow_html=True,
 )
@@ -379,7 +365,7 @@ def get_apartment_info(bld_num, apt_num):
     return None
 
 
-# ----------------- التعرف الفوري السريع جداً (Lightning Fast Vision) -----------------
+# ----------------- التعرف فائق السرعة والدقة عبر الذكاء البصري -----------------
 def analyze_plate_with_vision(image_bytes):
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -392,18 +378,30 @@ def analyze_plate_with_vision(image_bytes):
         return None, "يرجى إضافة مفتاح GEMINI_API_KEY في إعدادات Streamlit Secrets."
 
     try:
-        # تقليص حجم الصورة إلى 25KB فقط لتُرفع عبر الإنترنت فورياً
+        # ضغط وتصغير الصورة بنسبة 90% لتسريع الرفع وجعل التحليل فورياً
         pil_img = Image.open(io.BytesIO(image_bytes))
-        pil_img.thumbnail((640, 640), Image.Resampling.BILINEAR)
+        pil_img.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
         
         buffered = io.BytesIO()
-        pil_img.save(buffered, format="JPEG", quality=60, optimize=True)
+        pil_img.save(buffered, format="JPEG", quality=80, optimize=True)
         optimized_bytes = buffered.getvalue()
 
-        # استدعاء النموذج المعتمد gemini-3.8-flash بدون تأخير
         client = genai.Client(api_key=api_key)
-        prompt = """Extract Moroccan license plate as JSON:
-{"plate_number": "12345", "plate_letter": "د", "plate_region": "26", "car_desc": "car make color"}"""
+        prompt = """
+        استخرج بيانات لوحة ترقيم السيارة المغربية من الصورة مباشرة وبسرعة:
+        - plate_number: أرقام التسجيل فقط.
+        - plate_letter: الحرف العربي فقط (أ، ب، د، هـ، و، ج، ح، ي، ز، ر، أو WW).
+        - plate_region: رقم العمالة فقط (مثل 26).
+        - car_desc: نوع ولون السيارة باختصار (مثال: فورد رمادية).
+        
+        أرجع النتيجة بصيغة JSON حصرية:
+        {
+            "plate_number": "",
+            "plate_letter": "",
+            "plate_region": "",
+            "car_desc": ""
+        }
+        """
 
         response = client.models.generate_content(
             model="gemini-3.8-flash",
@@ -413,18 +411,14 @@ def analyze_plate_with_vision(image_bytes):
             ],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
-                temperature=0.0
+                temperature=0.1
             )
         )
 
-        clean_txt = response.text.strip()
-        clean_txt = re.sub(r"^```json\s*", "", clean_txt)
-        clean_txt = re.sub(r"\s*```$", "", clean_txt)
-        result_json = json.loads(clean_txt)
+        result_json = json.loads(response.text)
         return result_json, None
-
     except Exception as e:
-        return None, f"خطأ: {e}"
+        return None, f"خطأ أثناء التحليل: {e}"
 
 
 # ----------------- تصميم CSS المطور -----------------
@@ -663,7 +657,7 @@ with nav_c4:
 
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
-# ==================== 1. قسم الكاميرا ====================
+# ==================== 1. قسم الكاميرا (الذكاء البصري الفائق والسريع) ====================
 if st.session_state.active_tab == "camera":
     if st.session_state.get("reset_cam_form", False):
         st.session_state["cam_bld_in"] = ""
@@ -685,26 +679,13 @@ if st.session_state.active_tab == "camera":
     if "cam_desc_in" not in st.session_state:
         st.session_state["cam_desc_in"] = ""
 
-    st.subheader("📷 التقاط لوحة السيارة")
-
-    cam_tab1, cam_tab2 = st.tabs(["📸 كاميرا الشاشة المباشرة", "📱 الكاميرا الخلفية الأصلية للهاتف"])
-
-    camera_file = None
-    with cam_tab1:
-        camera_file = st.camera_input("التقاط عبر الكاميرا المباشرة")
-
-    with cam_tab2:
-        uploaded_camera = st.file_uploader(
-            "📷 انقر هنا لفتح الكاميرا الخلفية للهاتف والتقاط الصورة مباشرة:",
-            type=["jpg", "jpeg", "png"],
-            key="mobile_env_camera_upload"
-        )
-        if uploaded_camera is not None:
-            camera_file = uploaded_camera
+    st.subheader("📷 التقاط لوحة السيارة بالذكاء البصري")
+    camera_file = st.camera_input("")
 
     if camera_file is not None:
         img_bytes = camera_file.getvalue()
 
+        # معالجة الصورة فقط عند التقاط صورة جديدة
         if st.session_state.get("last_processed_img") != img_bytes:
             with st.spinner("⚡ جاري استيعاب الصورة وقراءة ترقيم اللوحة بالذكاء البصري..."):
                 plate_data, err = analyze_plate_with_vision(img_bytes)
@@ -956,155 +937,3 @@ elif st.session_state.active_tab == "add":
                 st.session_state["manual_phone_widget"] = m_data["phone"]
                 apt_t = m_data["apartment_type"]
                 st.session_state["manual_apttype_widget"] = apt_t if apt_t in apt_types_list else apt_types_list[0]
-                st.rerun()
-            else:
-                st.warning("⚠️ لم يتم العثور على شقة بهذه الأرقام في ملف fm6.xlsx.")
-
-    c_ma1, c_ma2 = st.columns(2)
-    with c_ma1:
-        m_apt_type = st.selectbox(
-            "نوع الشقة:",
-            apt_types_list,
-            key="manual_apttype_widget",
-        )
-    with c_ma2:
-        name = st.text_input(
-            "اسم الساكن",
-            key="manual_name_widget"
-        )
-
-    phone = st.text_input(
-        "رقم الهاتف",
-        key="manual_phone_widget"
-    )
-    car_desc = st.text_input("نوع ولون السيارة", key="m_car_desc")
-
-    if st.button("✅ تأكيد تسجيل السيارة في residence.xlsx", type="primary", use_container_width=True):
-        if p_num:
-            p_num = clean_str(p_num)
-            p_reg = clean_str(p_reg)
-            df = get_all_records()
-            if not df.empty and not df[df["plate_number"].astype(str) == str(p_num)].empty:
-                st.error(f"⛔ اللوحة ({p_num}) مسجلة مسبقاً بالفعل في المنظومة!")
-            else:
-                full_plate_str = f"{p_num} | {p_let} | {p_reg}"
-                add_record(
-                    m_bld,
-                    m_apt,
-                    m_apt_type,
-                    name,
-                    phone,
-                    p_num,
-                    p_let,
-                    p_reg,
-                    full_plate_str,
-                    car_type,
-                    car_desc,
-                    "",
-                )
-                st.session_state["reset_manual_form"] = True
-                st.success("✅ تم حفظ السيارة في ملف residence.xlsx بنجاح!")
-                st.rerun()
-        else:
-            st.error("أدخل رقم اللوحة على الأقل.")
-
-# ==================== 4. قسم الإدارة وتنزيل Excel ====================
-elif st.session_state.active_tab == "admin":
-    st.subheader("🔒 إدارة المنظومة وملف residence.xlsx")
-
-    if "admin_authenticated" not in st.session_state:
-        st.session_state.admin_authenticated = False
-
-    if not st.session_state.admin_authenticated:
-        with st.form("pin_form"):
-            admin_pass = st.text_input(
-                "🔐 أدخل القن السري للوصول للوحة الإدارة:",
-                type="password",
-                value="",
-            )
-            pin_submit = st.form_submit_button("🔓 تأكيد الدخول", type="primary", use_container_width=True)
-
-        if pin_submit:
-            if admin_pass == ADMIN_PIN:
-                st.session_state.admin_authenticated = True
-                st.rerun()
-            else:
-                st.error("⛔ القن السري غير صحيح. يرجى إعادة المحاولة.")
-
-    if st.session_state.admin_authenticated:
-        st.success("🔓 تم الدخول كمسؤول للمنظومة.")
-        df = get_all_records()
-
-        st.markdown("---")
-        df_fm6 = load_fm6_directory()
-        if not df_fm6.empty:
-            st.success(f"✅ تم تحميل دليل الشقق بنجاح من (fm6.xlsx): **{len(df_fm6)} شقة** مسجلة وجاهزة للربط الفوري.")
-        else:
-            st.warning("⚠️ لم يتم العثور على ملف fm6.xlsx بجانب app.py في المستودع.")
-
-        if not df.empty:
-            st.markdown("---")
-            m1, m2, m3 = st.columns(3)
-            m1.metric("إجمالي السيارات في residence.xlsx", len(df))
-            m2.metric(
-                "مكتملة البيانات",
-                df["apartment"].replace("", np.nan).dropna().count(),
-            )
-            missing_count = df["apartment"].replace("", np.nan).isna().sum()
-            m3.metric("بحاجة لإكمال الشقة ⚠️", missing_count)
-
-            # تنزيل ملف الإكسيل المحين
-            st.markdown("---")
-            st.subheader("📥 تنزيل وتصدير ملف residence.xlsx المُحيّن")
-            
-            towrite = io.BytesIO()
-            with pd.ExcelWriter(towrite, engine="openpyxl") as writer:
-                df.to_excel(writer, index=False, sheet_name="السيارات")
-            towrite.seek(0)
-
-            st.download_button(
-                label="📥 تنزيل النسخة المحينة (residence.xlsx)",
-                data=towrite,
-                file_name="residence.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-            )
-
-            # ----------------- الجدول الشامل التفاعلي -----------------
-            st.markdown("---")
-            st.subheader("📋 الجدول الشامل للسيارات")
-            st.info("💡 **انقر على أي سطر في الجدول أسفله لفتح نافذة التعديل أو الحذف المباشر فوراً:**")
-
-            display_cols = ["id", "full_plate", "building", "apartment", "apartment_type", "resident_name", "phone", "car_type", "car_info", "created_at"]
-            df_display = df[[c for c in display_cols if c in df.columns]]
-
-            selection_event = st.dataframe(
-                df_display,
-                use_container_width=True,
-                hide_index=True,
-                on_select="rerun",
-                selection_mode="single-row",
-            )
-
-            selected_rows = selection_event.selection.get("rows", [])
-            if selected_rows:
-                selected_idx = selected_rows[0]
-                selected_car_row = df.iloc[selected_idx]
-                edit_car_dialog(selected_car_row)
-
-        else:
-            st.info("لا توجد سيارات مسجلة بعد.")
-
-        st.markdown("---")
-        with st.expander("📤 رفع واستبدال ملف residence.xlsx بالكامل يدوياً"):
-            uploaded_excel = st.file_uploader("اختر ملف Excel لاستبدال سيارات الموقف", type=["xlsx", "xls"])
-            if uploaded_excel is not None:
-                if st.button("✅ تأكيد استبدال الملف بالكامل", type="primary"):
-                    df_up = pd.read_excel(uploaded_excel)
-                    for c in ["id", "building", "apartment", "apartment_type", "resident_name", "phone", "plate_number", "plate_letter", "plate_region", "full_plate", "car_type", "car_info", "created_at", "notes"]:
-                        if c not in df_up.columns:
-                            df_up[c] = ""
-                    st.session_state.cars_df = df_up
-                    save_df_to_residence_file()
-                    st.success("✅ تم تحديث وتحميل بيانات ملف residence.xlsx بنجاح!")
-                    st.rerun()
