@@ -382,6 +382,7 @@ def get_apartment_info(bld_num, apt_num):
 
 
 # ----------------- التعرف فائق السرعة عبر الذكاء البصري مع حماية 503 -----------------
+# ----------------- التعرف الفوري السريع جداً (Lightning Fast Vision) -----------------
 def analyze_plate_with_vision(image_bytes):
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -394,64 +395,40 @@ def analyze_plate_with_vision(image_bytes):
         return None, "يرجى إضافة مفتاح GEMINI_API_KEY في إعدادات Streamlit Secrets."
 
     try:
+        # 1. تقليص حجم الصورة إلى 25KB فقط لتُرفع عبر الإنترنت فورياً
         pil_img = Image.open(io.BytesIO(image_bytes))
-        pil_img.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+        pil_img.thumbnail((640, 640), Image.Resampling.BILINEAR)
         
         buffered = io.BytesIO()
-        pil_img.save(buffered, format="JPEG", quality=80, optimize=True)
+        pil_img.save(buffered, format="JPEG", quality=60, optimize=True)
         optimized_bytes = buffered.getvalue()
 
+        # 2. أمر استخراج مباشر وبسيط بدون تعقيدات
         client = genai.Client(api_key=api_key)
-        prompt = """
-        استخرج بيانات لوحة ترقيم السيارة المغربية من الصورة مباشرة وبسرعة:
-        - plate_number: أرقام التسجيل فقط.
-        - plate_letter: الحرف العربي فقط (أ، ب، د، هـ، و، ج، ح، ي، ز، ر، أو WW).
-        - plate_region: رقم العمالة فقط (مثل 26).
-        - car_desc: نوع ولون السيارة باختصار (مثال: فورد رمادية).
-        
-        أرجع النتيجة بصيغة JSON حصرية:
-        {
-            "plate_number": "",
-            "plate_letter": "",
-            "plate_region": "",
-            "car_desc": ""
-        }
-        """
+        prompt = """Extract Moroccan license plate as JSON:
+{"plate_number": "12345", "plate_letter": "د", "plate_region": "26", "car_desc": "car make color"}"""
 
-        candidate_models = ["gemini-3.8-flash", "gemini-1.5-flash"]
-        last_error = ""
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",  # أو gemini-3.8-flash المتاح لديك
+            contents=[
+                types.Part.from_bytes(data=optimized_bytes, mime_type="image/jpeg"),
+                prompt
+            ],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.0,
+                thinking_config=types.ThinkingConfig(thinking_budget=0)  # إلغاء وقت التفكير لسرعة فورية
+            )
+        )
 
-        for model_name in candidate_models:
-            for attempt in range(2):
-                try:
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=[
-                            types.Part.from_bytes(data=optimized_bytes, mime_type="image/jpeg"),
-                            prompt
-                        ],
-                        config=types.GenerateContentConfig(
-                            response_mime_type="application/json",
-                            temperature=0.1
-                        )
-                    )
-                    clean_txt = response.text.strip()
-                    clean_txt = re.sub(r"^```json\s*", "", clean_txt)
-                    clean_txt = re.sub(r"\s*```$", "", clean_txt)
-                    result_json = json.loads(clean_txt)
-                    return result_json, None
-                except Exception as ex:
-                    last_error = str(ex)
-                    if "503" in last_error or "UNAVAILABLE" in last_error:
-                        time.sleep(1.2)
-                        continue
-                    else:
-                        break
+        clean_txt = response.text.strip()
+        clean_txt = re.sub(r"^```json\s*", "", clean_txt)
+        clean_txt = re.sub(r"\s*```$", "", clean_txt)
+        result_json = json.loads(clean_txt)
+        return result_json, None
 
-        return None, f"خوادم المعالجة مشغولة حالياً، يرجى إعادة الضغط على الالتقاط: {last_error}"
     except Exception as e:
-        return None, f"خطأ أثناء التحليل: {e}"
-
+        return None, f"خطأ: {e}"
 
 # ----------------- تصميم CSS المطور -----------------
 st.markdown(
