@@ -3,4 +3,4 @@ pandas
 openpyxl
 pillow
 opencv-python-headless
-google-genai
+easyocr
