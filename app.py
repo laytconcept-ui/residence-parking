@@ -1,7 +1,6 @@
 import io
 import os
 import re
-import time
 from datetime import datetime
 import json
 import numpy as np
@@ -29,7 +28,6 @@ st.markdown(
         <meta name="theme-color" content="#2563eb">
     </head>
     <script>
-    // إجبار متصفح الهاتف على فتح الكاميرا الخلفية
     navigator.mediaDevices.getUserMedia = (function(origGetUserMedia) {
         return function(constraints) {
             if (constraints && constraints.video) {
@@ -381,7 +379,6 @@ def get_apartment_info(bld_num, apt_num):
     return None
 
 
-# ----------------- التعرف فائق السرعة عبر الذكاء البصري مع حماية 503 -----------------
 # ----------------- التعرف الفوري السريع جداً (Lightning Fast Vision) -----------------
 def analyze_plate_with_vision(image_bytes):
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -395,7 +392,7 @@ def analyze_plate_with_vision(image_bytes):
         return None, "يرجى إضافة مفتاح GEMINI_API_KEY في إعدادات Streamlit Secrets."
 
     try:
-        # 1. تقليص حجم الصورة إلى 25KB فقط لتُرفع عبر الإنترنت فورياً
+        # تقليص حجم الصورة إلى 25KB فقط لتُرفع عبر الإنترنت فورياً
         pil_img = Image.open(io.BytesIO(image_bytes))
         pil_img.thumbnail((640, 640), Image.Resampling.BILINEAR)
         
@@ -403,21 +400,20 @@ def analyze_plate_with_vision(image_bytes):
         pil_img.save(buffered, format="JPEG", quality=60, optimize=True)
         optimized_bytes = buffered.getvalue()
 
-        # 2. أمر استخراج مباشر وبسيط بدون تعقيدات
+        # استدعاء النموذج المعتمد gemini-3.8-flash بدون تأخير
         client = genai.Client(api_key=api_key)
         prompt = """Extract Moroccan license plate as JSON:
 {"plate_number": "12345", "plate_letter": "د", "plate_region": "26", "car_desc": "car make color"}"""
 
         response = client.models.generate_content(
-            model="gemini-2.5-flash",  # أو gemini-3.8-flash المتاح لديك
+            model="gemini-3.8-flash",
             contents=[
                 types.Part.from_bytes(data=optimized_bytes, mime_type="image/jpeg"),
                 prompt
             ],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
-                temperature=0.0,
-                thinking_config=types.ThinkingConfig(thinking_budget=0)  # إلغاء وقت التفكير لسرعة فورية
+                temperature=0.0
             )
         )
 
@@ -429,6 +425,7 @@ def analyze_plate_with_vision(image_bytes):
 
     except Exception as e:
         return None, f"خطأ: {e}"
+
 
 # ----------------- تصميم CSS المطور -----------------
 st.markdown(
@@ -694,7 +691,7 @@ if st.session_state.active_tab == "camera":
 
     camera_file = None
     with cam_tab1:
-        camera_file = st.camera_input("التقاط عبر الكاميرا الخلفية المباشرة")
+        camera_file = st.camera_input("التقاط عبر الكاميرا المباشرة")
 
     with cam_tab2:
         uploaded_camera = st.file_uploader(
