@@ -378,7 +378,45 @@ def get_apartment_info(bld_num, apt_num):
     return None
 
 
-# ----------------- دوال معالجة واستخراج اللوحات من كودك القديم الناجح -----------------
+# ----------------- دالة الإكمال التلقائي لبيانات السكان من fm6.xlsx -----------------
+def enrich_cars_from_fm6():
+    """مطابقة أرقام العمارات والشقق مع fm6.xlsx وتعبئة الأسماء والهواتف تلقائياً"""
+    df_cars = st.session_state.cars_df.copy()
+    df_fm6 = load_fm6_directory()
+
+    if df_fm6.empty or df_cars.empty:
+        return 0
+
+    updated_count = 0
+    for idx, row in df_cars.iterrows():
+        bld = clean_str(row.get("building", ""))
+        apt = clean_str(row.get("apartment", ""))
+
+        # إذا كانت الشقة محددة ولكن اسم الساكن أو هاتفه أو نوع الشقة فارغ
+        if apt and (not clean_str(row.get("resident_name", "")) or not clean_str(row.get("phone", "")) or not clean_str(row.get("apartment_type", ""))):
+            info = get_apartment_info(bld, apt)
+            if info:
+                changed = False
+                if not clean_str(row.get("resident_name", "")) and info.get("resident_name"):
+                    df_cars.at[idx, "resident_name"] = info["resident_name"]
+                    changed = True
+                if not clean_str(row.get("phone", "")) and info.get("phone"):
+                    df_cars.at[idx, "phone"] = info["phone"]
+                    changed = True
+                if not clean_str(row.get("apartment_type", "")) and info.get("apartment_type"):
+                    df_cars.at[idx, "apartment_type"] = info["apartment_type"]
+                    changed = True
+                if changed:
+                    updated_count += 1
+
+    if updated_count > 0:
+        st.session_state.cars_df = df_cars
+        save_df_to_residence_file()
+
+    return updated_count
+
+
+# ----------------- دوال معالجة واستخراج اللوحات المحلية -----------------
 def clean_image_for_ocr(image_np):
     if len(image_np.shape) == 3:
         return cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
@@ -410,7 +448,6 @@ def parse_moroccan_plate(ocr_results):
             x_center = (bbox[0][0] + bbox[1][0] + bbox[2][0] + bbox[3][0]) / 4.0
             boxes.append((x_center, t))
 
-    # ترتيب الكتل من اليمين إلى اليسار
     boxes.sort(key=lambda item: item[0], reverse=True)
 
     detected_letter = ""
@@ -459,7 +496,7 @@ def get_ocr_reader():
     return easyocr.Reader(["ar", "en"], gpu=False)
 
 
-# ----------------- تصميم CSS المطور وإبراز الخانات -----------------
+# ----------------- تصميم CSS المطور -----------------
 st.markdown(
     """
 <style>
@@ -695,7 +732,7 @@ with nav_c4:
 
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
-# ==================== 1. قسم الكاميرا (المعتمد على خوارزميتك القديمة الناجحة) ====================
+# ==================== 1. قسم الكاميرا ====================
 if st.session_state.active_tab == "camera":
     if st.session_state.get("reset_cam_form", False):
         st.session_state["cam_bld_in"] = ""
@@ -1031,7 +1068,7 @@ elif st.session_state.active_tab == "add":
         else:
             st.error("أدخل رقم اللوحة على الأقل.")
 
-# ==================== 4. قسم الإدارة وتنزيل Excel ====================
+# ==================== 4. قسم الإدارة وتنزيل Excel والإكمال التلقائي ====================
 elif st.session_state.active_tab == "admin":
     st.subheader("🔒 إدارة المنظومة وملف residence.xlsx")
 
@@ -1076,6 +1113,18 @@ elif st.session_state.active_tab == "admin":
             missing_count = df["apartment"].replace("", np.nan).isna().sum()
             m3.metric("بحاجة لإكمال الشقة ⚠️", missing_count)
 
+            # ----------------- زر المزامنة والإكمال التلقائي من fm6.xlsx -----------------
+            st.markdown("---")
+            st.subheader("🔄 المزامنة والإكمال التلقائي")
+            st.caption("يقوم هذا الزر بالبحث في كافة السيارات المسجلة ومطابقة أرقام الشقق مع fm6.xlsx لملء الأسماء والهواتف الناقصة تلقائياً:")
+            if st.button("⚡ مزامنة وإكمال بيانات السكان تلقائياً من fm6.xlsx", type="primary", use_container_width=True):
+                updated = enrich_cars_from_fm6()
+                if updated > 0:
+                    st.success(f"✅ تم تحديث وإكمال بيانات {updated} سيارة بنجاح من دليل fm6.xlsx!")
+                    st.rerun()
+                else:
+                    st.info("ℹ️ جميع السيارات مكتملة البيانات أو لم يتم العثور على تطابقات جديدة في دليل fm6.xlsx.")
+
             # تنزيل ملف الإكسيل المحين
             st.markdown("---")
             st.subheader("📥 تنزيل وتصدير ملف residence.xlsx المُحيّن")
@@ -1119,15 +1168,21 @@ elif st.session_state.active_tab == "admin":
             st.info("لا توجد سيارات مسجلة بعد.")
 
         st.markdown("---")
-        with st.expander("📤 رفع واستبدال ملف residence.xlsx بالكامل يدوياً"):
+        with st.expander("📤 رفع واستبدال ملف residence.xlsx بالكامل يدوياً مع إكمال تلقائي"):
             uploaded_excel = st.file_uploader("اختر ملف Excel لاستبدال سيارات الموقف", type=["xlsx", "xls"])
             if uploaded_excel is not None:
-                if st.button("✅ تأكيد استبدال الملف بالكامل", type="primary"):
+                if st.button("✅ تأكيد استبدال الملف وإكمال البيانات فوراً", type="primary"):
                     df_up = pd.read_excel(uploaded_excel)
                     for c in ["id", "building", "apartment", "apartment_type", "resident_name", "phone", "plate_number", "plate_letter", "plate_region", "full_plate", "car_type", "car_info", "created_at", "notes"]:
                         if c not in df_up.columns:
                             df_up[c] = ""
                     st.session_state.cars_df = df_up
                     save_df_to_residence_file()
-                    st.success("✅ تم تحديث وتحميل بيانات ملف residence.xlsx بنجاح!")
+                    
+                    # إكمال البيانات الناقصة مباشرة بعد الرفع
+                    added_info = enrich_cars_from_fm6()
+                    msg = "✅ تم تحديث وتحميل بيانات ملف residence.xlsx بنجاح!"
+                    if added_info > 0:
+                        msg += f" (وتم إكمال بيانات {added_info} سيارة تلقائياً من fm6.xlsx)"
+                    st.success(msg)
                     st.rerun()
