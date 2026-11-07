@@ -132,7 +132,7 @@ def load_residence_file():
                 if c not in df.columns:
                     df[c] = ""
             for c in df.columns:
-                df[c] = df[c].apply(clean_str)
+                df[c] = df[c].astype(object).apply(clean_str)
             df["phone"] = df["phone"].apply(format_moroccan_phone)
             df["apartment_type"] = df["apartment_type"].apply(clean_apt_type)
             return df
@@ -140,6 +140,8 @@ def load_residence_file():
             pass
 
     df_init = pd.DataFrame(INITIAL_CARS_BACKUP, columns=cols)
+    for c in df_init.columns:
+        df_init[c] = df_init[c].astype(object).apply(clean_str)
     try:
         df_init.to_excel(RESIDENCE_FILE, index=False)
     except Exception:
@@ -161,7 +163,7 @@ def save_df_to_residence_file():
 def get_all_records():
     df = st.session_state.cars_df.copy()
     for col in df.columns:
-        df[col] = df[col].apply(clean_str)
+        df[col] = df[col].astype(object).apply(clean_str)
     if "phone" in df.columns:
         df["phone"] = df["phone"].apply(format_moroccan_phone)
     return df
@@ -175,7 +177,7 @@ def add_record(building, apartment, apartment_type, name, phone, plate_num, plat
         new_id = len(df) + 1
 
     new_row = {
-        "id": new_id,
+        "id": str(new_id),
         "building": clean_str(building),
         "apartment": clean_str(apartment),
         "apartment_type": clean_apt_type(apartment_type),
@@ -198,18 +200,18 @@ def update_full_record(record_id, building, apartment, apartment_type, name, pho
     df = st.session_state.cars_df
     idx = df[df["id"].astype(str) == str(record_id)].index
     if not idx.empty:
-        df.loc[idx, "building"] = clean_str(building)
-        df.loc[idx, "apartment"] = clean_str(apartment)
-        df.loc[idx, "apartment_type"] = clean_apt_type(apartment_type)
-        df.loc[idx, "resident_name"] = clean_str(name)
-        df.loc[idx, "phone"] = format_moroccan_phone(phone)
-        df.loc[idx, "plate_number"] = clean_str(plate_num)
+        df.loc[idx, "building"] = str(clean_str(building))
+        df.loc[idx, "apartment"] = str(clean_str(apartment))
+        df.loc[idx, "apartment_type"] = str(clean_apt_type(apartment_type))
+        df.loc[idx, "resident_name"] = str(clean_str(name))
+        df.loc[idx, "phone"] = str(format_moroccan_phone(phone))
+        df.loc[idx, "plate_number"] = str(clean_str(plate_num))
         df.loc[idx, "plate_letter"] = str(plate_let)
-        df.loc[idx, "plate_region"] = clean_str(plate_reg)
-        df.loc[idx, "full_plate"] = clean_str(full_plate)
-        df.loc[idx, "car_type"] = clean_str(car_type)
-        df.loc[idx, "car_info"] = clean_str(car_info)
-        df.loc[idx, "notes"] = clean_str(notes)
+        df.loc[idx, "plate_region"] = str(clean_str(plate_reg))
+        df.loc[idx, "full_plate"] = str(clean_str(full_plate))
+        df.loc[idx, "car_type"] = str(clean_str(car_type))
+        df.loc[idx, "car_info"] = str(clean_str(car_info))
+        df.loc[idx, "notes"] = str(clean_str(notes))
         st.session_state.cars_df = df
         save_df_to_residence_file()
 
@@ -338,7 +340,7 @@ def load_fm6_directory():
             if col not in df.columns:
                 df[col] = ""
             else:
-                df[col] = df[col].apply(clean_str)
+                df[col] = df[col].astype(object).apply(clean_str)
 
         df["phone"] = df["phone"].apply(format_moroccan_phone)
         df["apartment_type"] = df["apartment_type"].apply(clean_apt_type)
@@ -378,45 +380,53 @@ def get_apartment_info(bld_num, apt_num):
     return None
 
 
-# ----------------- دالة الإكمال التلقائي لبيانات السكان من fm6.xlsx -----------------
+# ----------------- دالة الإكمال التلقائي لبيانات السكان (خالية من خطأ Dtype) -----------------
 def enrich_cars_from_fm6():
-    """مطابقة أرقام العمارات والشقق مع fm6.xlsx وتعبئة الأسماء والهواتف تلقائياً"""
+    """مطابقة أرقام العمارات والشقق مع fm6.xlsx وتعبئة الأسماء والهواتف تلقائياً بدون تعارض أنواع البيانات"""
     df_cars = st.session_state.cars_df.copy()
     df_fm6 = load_fm6_directory()
 
     if df_fm6.empty or df_cars.empty:
         return 0
 
+    # ضمان أن كافة الأعمدة من نوع object ونصوص لتفادي LossySetitemError
+    text_columns = ["resident_name", "phone", "apartment_type", "building", "apartment"]
+    for col in text_columns:
+        if col in df_cars.columns:
+            df_cars[col] = df_cars[col].astype(object).fillna("")
+        else:
+            df_cars[col] = ""
+
     updated_count = 0
     for idx, row in df_cars.iterrows():
         bld = clean_str(row.get("building", ""))
         apt = clean_str(row.get("apartment", ""))
 
-        # إذا كانت الشقة محددة ولكن اسم الساكن أو هاتفه أو نوع الشقة فارغ
         if apt and (not clean_str(row.get("resident_name", "")) or not clean_str(row.get("phone", "")) or not clean_str(row.get("apartment_type", ""))):
             info = get_apartment_info(bld, apt)
             if info:
                 changed = False
                 if not clean_str(row.get("resident_name", "")) and info.get("resident_name"):
-                    df_cars.at[idx, "resident_name"] = info["resident_name"]
+                    df_cars.loc[idx, "resident_name"] = str(info["resident_name"])
                     changed = True
                 if not clean_str(row.get("phone", "")) and info.get("phone"):
-                    df_cars.at[idx, "phone"] = info["phone"]
+                    df_cars.loc[idx, "phone"] = str(info["phone"])
                     changed = True
                 if not clean_str(row.get("apartment_type", "")) and info.get("apartment_type"):
-                    df_cars.at[idx, "apartment_type"] = info["apartment_type"]
+                    df_cars.loc[idx, "apartment_type"] = str(info["apartment_type"])
                     changed = True
                 if changed:
                     updated_count += 1
 
     if updated_count > 0:
+        df_cars["phone"] = df_cars["phone"].apply(format_moroccan_phone)
         st.session_state.cars_df = df_cars
         save_df_to_residence_file()
 
     return updated_count
 
 
-# ----------------- دوال معالجة واستخراج اللوحات المحلية -----------------
+# ----------------- دوال معالجة واستخراج اللوحات المحلية المستقرة -----------------
 def clean_image_for_ocr(image_np):
     if len(image_np.shape) == 3:
         return cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
@@ -1172,14 +1182,15 @@ elif st.session_state.active_tab == "admin":
             uploaded_excel = st.file_uploader("اختر ملف Excel لاستبدال سيارات الموقف", type=["xlsx", "xls"])
             if uploaded_excel is not None:
                 if st.button("✅ تأكيد استبدال الملف وإكمال البيانات فوراً", type="primary"):
-                    df_up = pd.read_excel(uploaded_excel)
+                    df_up = pd.read_excel(uploaded_excel, dtype=str)
                     for c in ["id", "building", "apartment", "apartment_type", "resident_name", "phone", "plate_number", "plate_letter", "plate_region", "full_plate", "car_type", "car_info", "created_at", "notes"]:
                         if c not in df_up.columns:
                             df_up[c] = ""
+                        else:
+                            df_up[c] = df_up[c].astype(object).apply(clean_str)
                     st.session_state.cars_df = df_up
                     save_df_to_residence_file()
                     
-                    # إكمال البيانات الناقصة مباشرة بعد الرفع
                     added_info = enrich_cars_from_fm6()
                     msg = "✅ تم تحديث وتحميل بيانات ملف residence.xlsx بنجاح!"
                     if added_info > 0:
